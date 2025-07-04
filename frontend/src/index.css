@@ -1,0 +1,166 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+
+/* Animación “pop” */
+@keyframes pop {
+  0% { opacity: 0; transform: scale(0.95); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.animate-pop {
+  animation: pop 0.3s ease-out;
+}
+
+/* Sombra en hover de inputs */
+.shadow-input:hover {
+  box-shadow: 1px 1px 4px rgba(0, 93, 171, 0.25);
+  transition: box-shadow 0.2s ease-in-out;
+}
+/* Estilos de botones */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-left: 1rem;
+  padding-right: 1rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #fff;
+  background-color: #2563eb; /* bg-blue-600 */
+  border: 1px solid transparent;
+  border-radius: 0.375rem;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  transition: background-color 0.2s;
+}
+.btn:hover {
+  background-color: #1d4ed8; /* bg-blue-700 */
+}
+.btn:focus {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px #3b82f6; /* focus:ring-blue-500 */
+}
+
+/* Estilos de botones secundarios */
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-left: 1rem;
+  padding-right: 1rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151; /* text-gray-700 */
+  background-color: #fff;
+  border: 1px solid #d1d5db; /* border-gray-300 */
+  border-radius: 0.375rem;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  transition: background-color 0.2s;
+}
+.btn-secondary:hover {
+  background-color: #f9fafb; /* bg-gray-50 */
+}
+.btn-secondary:focus {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px #3b82f6; /* focus:ring-blue-500 */
+}
+.toggle-switch {
+  position: relative;
+  display: inline-flex;
+  height: 24px;
+  width: 38px;
+  cursor: pointer;
+  align-items: center;
+  border-radius: 9999px;
+  background-color: #c6c6c9;
+  transition: all 0.2s;
+}
+.toggle-switch input:checked + span {
+  transform: translateX(1.25rem);
+  background-color: #005dab;
+}
+.toggle-switch input:checked + span + span {
+  transform: translateX(1.25rem);
+  transition: transform 0.3s ease-in-out;
+}
+
+/* Campos sincronizados */
+.campo-sincronizado {
+  border: 2px solid #005dab !important;
+  background-color: #eef2ff;
+}
+
+/* Ocultos para horas y secciones */
+.hidden-field { display: none; }
+
+/* Tab activo */
+.tab-active {
+  background-color: #005dab!important;
+  color: white!important;
+}
+
+/* Input focus estilo */
+.input-general:focus {
+  outline: none;
+  border-color: #f78243!important;
+  box-shadow: 0 0 0 2px rgba(247, 130, 67, 0.5);
+}
+.input-general {
+        border: 1px solid #cbd5e1; /* border-gray-300 */
+        border-radius: 0.375rem; /* rounded */
+        transition: border-color 0.2s ease-in-out;
+      }
+
+.input-general:focus {
+        border-color: #f78243; /* focus:ring-indigo-500 */
+        outline: none;
+        box-shadow: #f78243; /* focus:ring-2 */
+      }
+.campo-sincronizado {
+        border: 2px solid #005dab !important;
+        background-color: #eef2ff;
+      }
+input:hover,
+      textarea:hover,
+      .input-general:hover {
+        box-shadow: 1px 1px 4px 1px rgba(0, 93, 171, 0.25);
+        transition: box-shadow 0.2s ease-in-out;
+      }
+textarea:focus {
+        border-color: #f78243 !important; /* focus:ring-indigo-500 */
+        outline: none;
+        box-shadow: #f78243 !important; /* focus:ring-2 */
+        border: 1px solid #cbd5e1; /* border-gray-300 */
+        border-radius: 0.375rem; /* rounded */
+        transition: border-color 0.2s ease-in-out;
+      }
+input:focus {
+        border-color: #f78243 !important; /* focus:ring-indigo-500 */
+        outline: none;
+        box-shadow: #f78243 !important; /* focus:ring-2 */
+        border: 1px solid #cbd5e1; /* border-gray-300 */
+        border-radius: 0.375rem; /* rounded */
+        transition: border-color 0.2s ease-in-out;
+      }
+input[type="checkbox"].peer:checked  {
+        background-color: #005dab !important;
+        box-shadow: 0 0 0 2px rgba(0, 93, 171, 0.3);
+        transition: background-color 0.2s, box-shadow 0.2s;
+      }
+
+input[type="checkbox"].peer:checked + div + div {
+        transform: translateX(1.25rem); /* 20px */
+        transition: transform 0.3s ease-in-out;
+      }
+
+/* Clases de texto personalizadas */
+.text-indigo-700,
+.text-indigo-800,
+.text-indigo-600 { color: #005dab!important; }
+.text-indigo-100 { color: #e0f2fe!important; }
