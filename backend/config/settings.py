@@ -55,8 +55,8 @@ INSTALLED_APPS = [
     "allauth.account",
     "allauth.socialaccount",
     "allauth.socialaccount.providers.google",
-    
-    "corsheaders",
+    "drf_yasg",
+    "corsheaders",  
     
 ]
 AUTH_USER_MODEL = 'pedidos.CustomUser'
