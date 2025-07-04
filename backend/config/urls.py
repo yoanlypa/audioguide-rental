@@ -23,7 +23,23 @@ from pedidos.views import EmailTokenObtainPairView, MisPedidosView
 from pedidos.api_urls import router
 from rest_framework.routers import DefaultRouter
 from pedidos.views import PedidoViewSet
+from rest_framework import permissions
 
+from drf_yasg.views import get_schema_view
+from drf_yasg import openapi
+
+schema_view = get_schema_view(
+    openapi.Info(
+        title="Innovations Tours API",
+        default_version="v1",
+        description="Alquiler de radioguías",
+        terms_of_service="https://innovations-tours.com/terms",
+        contact=openapi.Contact(email="dev@innovations-tours.com"),
+        license=openapi.License(name="MIT"),
+    ),
+    public=False,                           # <- Swagger requiere auth
+    permission_classes=[permissions.IsAdminUser],
+)
 router = DefaultRouter()
 router.register(r'pedidos', PedidoViewSet)
 
@@ -36,7 +52,12 @@ urlpatterns = [
     
     path('api/auth/', include('dj_rest_auth.urls')),
     path('api/auth/registration/', include('dj_rest_auth.registration.urls')),
- 
+    
+        # Swagger UI
+    re_path(r"^swagger/$", schema_view.with_ui("swagger", cache_timeout=0), name="schema-swagger-ui"),
+    # Redoc (opcional)
+    re_path(r"^redoc/$", schema_view.with_ui("redoc", cache_timeout=0), name="schema-redoc"),
+
  
     # endpoints de pedidos
     path('api/', include(router.urls)),
