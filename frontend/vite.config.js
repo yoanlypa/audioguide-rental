@@ -8,7 +8,7 @@ export default defineConfig({
     proxy: {
       // todo lo que vaya a /api se manda a http://localhost:8000
       '/api': {
-        target: 'http://localhost:8000',
+        target: 'https://innovations-tours.up.railway.app/',
         changeOrigin: true,
         secure: false,
       },
