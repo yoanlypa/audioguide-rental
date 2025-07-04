@@ -151,7 +151,6 @@ USE_TZ = True
 
 STATIC_URL = "/static/"
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
-STATICFILES_DIRS = [os.path.join(BASE_DIR, "static")]
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 LOGIN_URL = "pedidos:acceso"
 # Default primary key field type
@@ -181,6 +180,12 @@ REST_FRAMEWORK = {
     ),
 }
 
+REST_AUTH = {
+    "SIGNUP_FIELDS": {
+        "username": {"required": False},   # o False si no usas username
+        "email":    {"required": True},
+    },
+}
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
