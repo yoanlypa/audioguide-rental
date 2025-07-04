@@ -162,6 +162,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://localhost:5174",
     "https://bountiful-commitment-production.up.railway.app",
+    "https://nodejs-production-059b.up.railway.app",
     
 ]
 CORS_ALLOW_CREDENTIALS = True
