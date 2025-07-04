@@ -151,19 +151,22 @@ USE_TZ = True
 
 STATIC_URL = "/static/"
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
-STATICFILES_DIRS = [os.path.join(BASE_DIR, "static")]
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 LOGIN_URL = "pedidos:acceso"
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+CSRF_TRUSTED_ORIGINS = [
+    "https://innovations-tours.up.railway.app",
+    "https://*.up.railway.app",   
+]
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://localhost:5174",
     "https://bountiful-commitment-production.up.railway.app",
     "https://nodejs-production-059b.up.railway.app",
-    
+    "https://innovations-tours.up.railway.app",
 ]
 CORS_ALLOW_CREDENTIALS = True
 
@@ -181,6 +184,12 @@ REST_FRAMEWORK = {
     ),
 }
 
+REST_AUTH = {
+    "SIGNUP_FIELDS": {
+        "username": {"required": False},   # o False si no usas username
+        "email":    {"required": True},
+    },
+}
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
