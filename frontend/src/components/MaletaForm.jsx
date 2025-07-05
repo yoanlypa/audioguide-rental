@@ -7,7 +7,8 @@ export default function MaletaForm({
   tipoServicio,
   datosGenerales,
   aplicarGeneral,
-  onRemove
+  onRemove,
+  onChange,
 }) {
   const [maleta, setMaleta] = useState({
     grupo: '',
@@ -33,8 +34,13 @@ export default function MaletaForm({
       }
     });
     setMaleta(nuevaMaleta);
-  }, [datosGenerales, aplicarGeneral, maleta]);
+    }, [datosGenerales, aplicarGeneral]);
 
+  useEffect(() => {
+    if (onChange) {
+      onChange(maleta);
+    }
+  }, [maleta, onChange]);
   const handleChange = (e) => {
     const { name, value } = e.target;
     setMaleta({ ...maleta, [name]: value });
