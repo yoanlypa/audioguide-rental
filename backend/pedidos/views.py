@@ -38,3 +38,11 @@ class MisPedidosView(APIView):
         pedidos = Pedido.objects.filter(user=request.user)
         serializer = PedidoSerializer(pedidos, many=True)
         return Response(serializer.data)
+class BulkPedidos(APIView):
+    permission_classes = []    # o tu auth
+    def post(self, request):
+        ser = PedidoSerializer(data=request.data, many=True)
+        if ser.is_valid():
+            ser.save()
+            return Response({"created": len(ser.data)})
+        return Response(ser.errors, status=status.HTTP_400_BAD_REQUEST)        
