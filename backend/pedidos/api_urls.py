@@ -7,4 +7,5 @@ router.register(r'pedidos', PedidoViewSet, basename='pedido')
 
 urlpatterns = [
     path('', include(router.urls)),
+    path("pedidos/bulk/", BulkPedidos.as_view()),
 ]
