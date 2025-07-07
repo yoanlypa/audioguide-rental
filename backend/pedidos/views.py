@@ -39,7 +39,7 @@ class MisPedidosView(APIView):
         serializer = PedidoSerializer(pedidos, many=True)
         return Response(serializer.data)
 class BulkPedidos(APIView):
-    permission_classes = []    # o tu auth
+    permission_classes = [AllowAny]        
     def post(self, request):
         ser = PedidoSerializer(data=request.data, many=True)
         if ser.is_valid():
