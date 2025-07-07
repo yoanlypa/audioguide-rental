@@ -1,6 +1,6 @@
 from django.shortcuts import render
 from rest_framework import viewsets, permissions
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from .models import Pedido
 from .serializers import PedidoSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
