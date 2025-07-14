@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Pedido
+from .models import Pedido, PedidoCrucero
 from .models import CustomUser
 from django.contrib.auth import authenticate, get_user_model
 from rest_framework import exceptions
@@ -68,3 +68,14 @@ class PedidoSerializer(serializers.ModelSerializer):
 
         # Elimina servicios existentes
         instance.servicios.all().delete()
+
+class PedidoCruceroSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = PedidoCrucero
+        fields = "__all__"
+
+    def validate(self, attrs):
+        # PAX no puede ser 0
+        if attrs["pax"] <= 0:
+            raise serializers.ValidationError({"pax": "Debe ser mayor que cero."})
+        return attrs
