@@ -58,7 +58,7 @@ urlpatterns = [
     # endpoints de pedidos
     path('api/', include(router.urls)),
     path("pedidos/bulk/", BulkPedidos.as_view()),
-    path("pedidos/cruceros/bulk/", CruceroBulkView.as_view()),
+    path("api/pedidos/cruceros/bulk/", CruceroBulkView.as_view()),
     path('mis-pedidos/', MisPedidosView.as_view()),
     
 ]
