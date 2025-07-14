@@ -1,15 +1,15 @@
 from django.shortcuts import render
 from rest_framework import viewsets, permissions
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from .models import Pedido
-from .serializers import PedidoSerializer
+from .models import Pedido, PedidoCrucero
+from .serializers import PedidoSerializer, PedidoCruceroSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
 from .serializers import EmailTokenObtainPairSerializer
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
-
+ 
 class PedidoViewSet(viewsets.ModelViewSet):
     queryset = Pedido.objects.all()
     serializer_class = PedidoSerializer
@@ -46,3 +46,24 @@ class BulkPedidos(APIView):
             ser.save()
             return Response({"created": len(ser.data)})
         return Response(ser.errors, status=status.HTTP_400_BAD_REQUEST)        
+
+
+class CruceroBulkView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        if not isinstance(request.data, list):
+            return Response(
+                {"detail": "Se esperaba una lista JSON."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        ser = PedidoCruceroSerializer(data=request.data, many=True)
+        if ser.is_valid():
+            ser.save()
+            return Response({"created": len(ser.data)}, status=201)
+        return Response(ser.errors, status=400)
+
+    def get(self, request):
+        qs = PedidoCrucero.objects.all()
+        ser = PedidoCruceroSerializer(qs, many=True)
+        return Response(ser.data)
