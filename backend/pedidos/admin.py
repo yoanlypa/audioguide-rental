@@ -8,6 +8,7 @@ class CustomUserAdmin(UserAdmin):
     fieldsets = UserAdmin.fieldsets + (
         ('Información adicional', {'fields': ('empresa',)}),
     )
+@admin.register(PedidoCrucero)
 class PedidoCruceroAdmin(admin.ModelAdmin):
     list_display  = ("service_date", "ship", "sign", "excursion", "pax")
     list_filter   = ("service_date", "ship")
@@ -15,6 +16,5 @@ class PedidoCruceroAdmin(admin.ModelAdmin):
     date_hierarchy = "service_date"
 
 admin.site.register(Pedido)
-admin.register(PedidoCrucero)
 admin.site.register(CustomUser, CustomUserAdmin)
 admin.site.register(Empresa)
