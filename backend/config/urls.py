@@ -22,7 +22,7 @@ from rest_framework_simplejwt.views import (
 from pedidos.views import EmailTokenObtainPairView, MisPedidosView
 from pedidos.api_urls import router
 from rest_framework.routers import DefaultRouter
-from pedidos.views import PedidoViewSet
+from pedidos.views import PedidoViewSet, BulkPedidos
 from rest_framework import permissions
 
 from drf_yasg.views import get_schema_view
