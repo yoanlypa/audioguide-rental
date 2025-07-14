@@ -19,10 +19,9 @@ from django.urls import path, include
 from rest_framework_simplejwt.views import (
     TokenRefreshView,
 )
-from pedidos.views import EmailTokenObtainPairView, MisPedidosView
+from pedidos.views import EmailTokenObtainPairView, MisPedidosView, PedidoViewSet, BulkPedidos,CruceroBulkView
 from pedidos.api_urls import router
 from rest_framework.routers import DefaultRouter
-from pedidos.views import PedidoViewSet, BulkPedidos
 from rest_framework import permissions
 
 from drf_yasg.views import get_schema_view
@@ -59,5 +58,7 @@ urlpatterns = [
     # endpoints de pedidos
     path('api/', include(router.urls)),
     path("pedidos/bulk/", BulkPedidos.as_view()),
+    path("pedidos/cruceros/bulk/", CruceroBulkView.as_view()),
     path('mis-pedidos/', MisPedidosView.as_view()),
+    
 ]
