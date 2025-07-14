@@ -36,6 +36,14 @@ class Pedido(models.Model):
             ('entregado',     'Entregado'),
             ('recogido',      'Recogido'),
         ]
+        TIPO_CHOICES = [
+        ("mediodia",  "Medio día"),
+        ("dia_Completo",  "Día completo"),
+        ("circuito",  "Circuito"),
+        ("crucero",   "Crucero"),     
+    ]
+
+        tipo_servicio = models.CharField(max_length=15, choices=TIPO_CHOICES, default="mediodia")
         estado = models.CharField(max_length=20, choices=ESTADOS, default='pendiente_pago')
         lugar_entrega = models.CharField(max_length=150, blank=True)
         lugar_recogida = models.CharField(max_length=150, blank=True)
