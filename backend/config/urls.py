@@ -58,6 +58,6 @@ urlpatterns = [
  
     # endpoints de pedidos
     path('api/', include(router.urls)),
-    
+    path("pedidos/bulk/", BulkPedidos.as_view()),
     path('mis-pedidos/', MisPedidosView.as_view()),
 ]
