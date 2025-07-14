@@ -15,6 +15,6 @@ class PedidoCruceroAdmin(admin.ModelAdmin):
     date_hierarchy = "service_date"
 
 admin.site.register(Pedido)
-@admin.register(PedidoCrucero)
+admin.register(PedidoCrucero)
 admin.site.register(CustomUser, CustomUserAdmin)
 admin.site.register(Empresa)
