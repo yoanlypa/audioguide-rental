@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -e
-
+python manage.py makemigrations --noinput
 python manage.py migrate --noinput
 
 # Crea el admin solo si NO existe (exit-code 1 se ignora)
