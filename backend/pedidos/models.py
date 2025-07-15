@@ -59,24 +59,23 @@ class Pedido(models.Model):
                 self.updates.append(now().isoformat())
             super().save(*args, **kwargs)
 
-class PedidoCrucero(models.Model):
+  # --- class PedidoCrucero(models.Model):
     # --- metadatos (se repiten en cada fila importada) ---
-    printing_date      = models.DateField()
-    supplier           = models.CharField(max_length=200)
-    emergency_contact  = models.CharField(max_length=100, blank=True)
-    service_date       = models.DateField()
-    ship               = models.CharField(max_length=100)
-    status   = models.CharField(max_length=20, blank=True)   # preliminary / final
-    terminal = models.CharField(max_length=50, blank=True) 
+    # printing_date      = models.DateField()
+  #  supplier           = models.CharField(max_length=200)
+   # emergency_contact  = models.CharField(max_length=100, blank=True)
+ #   service_date       = models.DateField()
+  #  ship               = models.CharField(max_length=100)
+ #   status             = models.CharField(max_length=20, blank=True)   # preliminary / final
+ #   terminal           = models.CharField(max_length=50, blank=True)
 
     # --- datos de cada maleta ---
-    sign         = models.CharField(max_length=20)
-    excursion    = models.CharField(max_length=200)
-    language     = models.CharField(max_length=50, blank=True)
-    pax          = models.PositiveIntegerField()
-    arrival_time = models.TimeField(null=True, blank=True)
+ #   sign               = models.CharField(max_length=20)
+  #  excursion          = models.CharField(max_length=200)
+  #  language           = models.CharField(max_length=50, blank=True)
+  #  pax                = models.PositiveIntegerField()
+  #  arrival_time       = models.TimeField(null=True, blank=True)
+  #  uploaded_at        = models.DateTimeField(auto_now_add=True)
 
-    uploaded_at  = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ["service_date", "ship", "sign"]
+   # class Meta:
+ #       ordering = ["service_date", "ship", "sign"]
