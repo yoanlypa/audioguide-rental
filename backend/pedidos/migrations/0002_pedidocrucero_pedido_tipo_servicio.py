@@ -33,6 +33,17 @@ class Migration(migrations.Migration):
             },
         ),
         migrations.AddField(
+            model_name='pedidocrucero',
+            name='status',
+            field=models.CharField(blank=True, max_length=20),
+        ),
+        migrations.AddField(
+            model_name='pedidocrucero',
+            name='terminal',
+            field=models.CharField(blank=True, max_length=50),
+        ),
+
+        migrations.AddField(
             model_name='pedido',
             name='tipo_servicio',
             field=models.CharField(choices=[('mediodia', 'Medio día'), ('dia_Completo', 'Día completo'), ('circuito', 'Circuito'), ('crucero', 'Crucero')], default='mediodia', max_length=15),
