@@ -66,6 +66,8 @@ class PedidoCrucero(models.Model):
     emergency_contact  = models.CharField(max_length=100, blank=True)
     service_date       = models.DateField()
     ship               = models.CharField(max_length=100)
+    status   = models.CharField(max_length=20, blank=True)   # preliminary / final
+    terminal = models.CharField(max_length=50, blank=True) 
 
     # --- datos de cada maleta ---
     sign         = models.CharField(max_length=20)
