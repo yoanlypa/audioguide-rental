@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from .models import  Empresa, Pedido, CustomUser, PedidoCrucero 
+from .models import  Empresa, Pedido, CustomUser, PedidoCrucero
 
 class CustomUserAdmin(UserAdmin):
     model = CustomUser
