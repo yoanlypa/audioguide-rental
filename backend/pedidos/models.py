@@ -82,8 +82,8 @@ class PedidoCrucero(models.Model):
         verbose_name = "Pedido Crucero"
         verbose_name_plural = "Pedidos Cruceros"
         # Asegura que no se repitan los mismos datos de servicio
-        unique_together = ('service_date', 'ship', 'sign')
-        
+        unique_together = ('service_date', 'ship', 'sign', 'status')
+
         
     def __str__(self):
-        return f"{self.service_date} - {self.ship} - {self.sign}"
+        return f"{self.service_date} - {self.ship} - {self.sign} - {self.status}"
