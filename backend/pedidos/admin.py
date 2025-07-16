@@ -10,13 +10,14 @@ class CustomUserAdmin(UserAdmin):
     )
 @admin.register(PedidoCrucero)
 class PedidoCruceroAdmin(admin.ModelAdmin):
-    list_display  = ("service_date", "ship", "sign", "excursion", "pax")
     list_filter   = ("service_date", "ship")
     search_fields = ("sign", "excursion", "language")
     date_hierarchy = "service_date"
-    ordering = ("service_date", "ship", "sign")
-    def get_queryset(self, request):
-        return super().get_queryset(request).select_related("ship")
+    list_display = (
+        'printing_date', 'service_date', 'ship',
+        'sign', 'excursion', 'pax', 'status', 'terminal',
+    )
+    ordering = ['service_date', 'ship', 'sign']
 
 admin.site.register(Pedido)
 admin.site.register(CustomUser, CustomUserAdmin)

@@ -55,21 +55,30 @@ class CruceroBulkView(APIView):
     def get(self, request):
         qs = PedidoCrucero.objects.all()
 
-        # filtros por query-params
-        sd   = request.query_params.get("service_date")
-        ship = request.query_params.get("ship")
-        if sd:
-            qs = qs.filter(service_date=sd)
-        if ship:
-            qs = qs.filter(ship=ship)
+        ordering_raw = request.query_params.getlist("ordering")
 
-        # manejo de ordering sin listas anidadas
-        ordering_fields = []
-        for param in request.query_params.getlist("ordering"):
-            # soporta tanto ?ordering=campo1,−campo2 como múltiples ?ordering=campo
-            ordering_fields += [f.strip() for f in param.split(",") if f.strip()]
-        if ordering_fields:
-            qs = qs.order_by(*ordering_fields)
+        order_fields: list[str] = []
+        for item in ordering_raw:
+            # Si viene como lista JSON dentro del query (?ordering=["camp1","camp2"])
+            if isinstance(item, str) and item.startswith('['):
+                import json, ast
+                try:
+                    # intenta JSON first
+                    parsed = json.loads(item)
+                except Exception:
+                    # fallback: literal_eval de la lista
+                    parsed = ast.literal_eval(item)
+                if isinstance(parsed, list):
+                    order_fields.extend([str(x).strip() for x in parsed])
+            else:
+                # split por comas para casos ?ordering=camp1,-camp2
+                order_fields.extend([p.strip() for p in item.split(",") if p.strip()])
+
+        # quita duplicados y valores vacíos
+        order_fields = [f for f in dict.fromkeys(order_fields) if f]
+
+        if order_fields:
+            qs = qs.order_by(*order_fields)
 
         serializer = PedidoCruceroSerializer(qs, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
