@@ -9,7 +9,8 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
- 
+from django.db import transaction
+
 class PedidoViewSet(viewsets.ModelViewSet):
     queryset = Pedido.objects.all()
     serializer_class = PedidoSerializer
@@ -58,12 +59,29 @@ class CruceroBulkView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         ser = PedidoCruceroSerializer(data=request.data, many=True)
-        if ser.is_valid():
-            ser.save()
-            return Response({"created": len(ser.data)}, status=201)
-        return Response(ser.errors, status=400)
+        ser.is_valid(raise_exception=True)
 
-    def get(self, request):
-        qs = PedidoCrucero.objects.all()
-        ser = PedidoCruceroSerializer(qs, many=True)
-        return Response(ser.data)
+        objs = [PedidoCrucero(**d) for d in ser.validated_data]
+
+        with transaction.atomic():
+            # Django 5+: hace UPSERT basado en la UniqueConstraint
+            created = PedidoCrucero.objects.bulk_create(
+                objs,
+                update_conflicts=True,
+                unique_fields=["service_date", "ship", "sign"],
+                update_fields=[
+                    "printing_date",
+                    "excursion",
+                    "language",
+                    "pax",
+                    "arrival_time",
+                    "status",
+                    "terminal",
+                    "supplier",
+                    "emergency_contact",
+                ],
+            )
+        return Response(
+            {"created": len(created), "updated": len(objs) - len(created)},
+            201
+        )
