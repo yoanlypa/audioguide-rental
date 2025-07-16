@@ -51,28 +51,16 @@ class BulkPedidos(APIView):
 
 class CruceroBulkView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = PedidoCruceroSerializer
+    
     def get(self, request):
-        qs = PedidoCrucero.objects.all()
-
-        # Filtros simples
-        service_date = request.query_params.get("service_date")
-        ship         = request.query_params.get("ship")
-        if service_date:
-            qs = qs.filter(service_date=service_date)
-        if ship:
-            qs = qs.filter(ship=ship)
-
-        # Parámetro opcional de orden
-        # Uso: ?ordering=service_date,-sign
-        ordering = request.query_params.get("ordering")
-        if ordering:
-            # splitting por coma y desempacando
-            order_fields = [f.strip() for f in ordering.split(",") if f.strip()]
-            if order_fields:
-                qs = qs.order_by(*order_fields)
-
-        serializer = PedidoCruceroSerializer(qs, many=True)
+        cruceros = PedidoCrucero.objects.all()
+        serializer = PedidoCruceroSerializer(cruceros, many=True)
         return Response(serializer.data)
+    @swagger_auto_schema(
+        request_body=PedidoCruceroSerializer(many=True),
+        responses={201: PedidoCruceroSerializer(many=True)}
+    )
     def post(self, request):
         if not isinstance(request.data, list):
             return Response(
