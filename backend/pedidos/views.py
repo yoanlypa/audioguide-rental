@@ -53,11 +53,9 @@ class CruceroBulkView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        """
-        Listado de todos los pedidos.
-        Soporta filtros por query-params: ?service_date=YYYY-MM-DD&ship=NombreBarco
-        """
         qs = PedidoCrucero.objects.all()
+
+        # filtros por query-params
         sd   = request.query_params.get("service_date")
         ship = request.query_params.get("ship")
         if sd:
@@ -65,31 +63,35 @@ class CruceroBulkView(APIView):
         if ship:
             qs = qs.filter(ship=ship)
 
+        # manejo de ordering sin listas anidadas
+        ordering_fields = []
+        for param in request.query_params.getlist("ordering"):
+            # soporta tanto ?ordering=campo1,−campo2 como múltiples ?ordering=campo
+            ordering_fields += [f.strip() for f in param.split(",") if f.strip()]
+        if ordering_fields:
+            qs = qs.order_by(*ordering_fields)
+
         serializer = PedidoCruceroSerializer(qs, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def post(self, request):
-        """
-        Inserción/actualización masiva (upsert).
-        Usa bulk_create(update_conflicts=True) o tu lógica actual.
-        """
         ser = PedidoCruceroSerializer(data=request.data, many=True)
         ser.is_valid(raise_exception=True)
 
         objs = [PedidoCrucero(**d) for d in ser.validated_data]
-
-        # Ejemplo con Django 5+ UPSERT:
-        created = PedidoCrucero.objects.bulk_create(
-            objs,
-            update_conflicts=True,
-            unique_fields=["service_date", "ship", "sign"],
-            update_fields=[
-                "printing_date", "supplier", "emergency_contact",
-                "service_date", "ship", "sign", "excursion",
-                "language", "pax", "arrival_time", "status", "terminal",
-            ],
-        )
-        return Response(
-                {"created": len(created), "updated": len(objs) - len(created)},
-                status=status.HTTP_201_CREATED
+        with transaction.atomic():
+            created = PedidoCrucero.objects.bulk_create(
+                objs,
+                update_conflicts=True,
+                unique_fields=["service_date", "ship", "sign"],
+                update_fields=[
+                    "printing_date", "supplier", "emergency_contact",
+                    "service_date", "ship", "sign", "excursion",
+                    "language", "pax", "arrival_time", "status", "terminal",
+                ],
             )
+
+        return Response(
+            {"created": len(created), "updated": len(objs) - len(created)},
+            status=status.HTTP_201_CREATED,
+        )
