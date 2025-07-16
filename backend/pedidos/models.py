@@ -78,10 +78,12 @@ class PedidoCrucero(models.Model):
     uploaded_at        = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ["service_date", "ship", "sign"],
-        constraints = [
-                models.UniqueConstraint(
-                    fields=["service_date", "ship", "sign"],
-                    name="uniq_servdate_ship_sign"
-                )
-            ]
+        ordering = ['service_date', 'ship', 'sign']
+        verbose_name = "Pedido Crucero"
+        verbose_name_plural = "Pedidos Cruceros"
+        # Asegura que no se repitan los mismos datos de servicio
+        unique_together = ('service_date', 'ship', 'sign')
+        
+        
+    def __str__(self):
+        return f"{self.service_date} - {self.ship} - {self.sign}"
