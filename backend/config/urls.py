@@ -19,7 +19,7 @@ from django.urls import path, include
 from rest_framework_simplejwt.views import (
     TokenRefreshView,
 )
-from pedidos.views import EmailTokenObtainPairView, MisPedidosView, PedidoViewSet, BulkPedidos,CruceroBulkView
+from pedidos.views import EmailTokenObtainPairView, MisPedidosView, PedidoViewSet, BulkPedidos,CruceroBulkView, PedidoCruceroListView
 from pedidos.api_urls import router
 from rest_framework.routers import DefaultRouter
 from rest_framework import permissions
@@ -58,7 +58,8 @@ urlpatterns = [
     # endpoints de pedidos
     path('api/', include(router.urls)),
     path("pedidos/bulk/", BulkPedidos.as_view()),
-    path("api/pedidos/cruceros/bulk/", CruceroBulkView.as_view()),
+    path('api/pedidos/cruceros/bulk/', CruceroBulkView.as_view()),
+    path('api/pedidos/cruceros/',     PedidoCruceroListView.as_view()),
     path('mis-pedidos/', MisPedidosView.as_view()),
     
 ]
