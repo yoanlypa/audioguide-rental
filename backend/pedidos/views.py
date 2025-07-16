@@ -1,3 +1,4 @@
+import logging
 from django.shortcuts import render
 from rest_framework import viewsets, permissions, status, generics, filters
 from rest_framework import serializers
@@ -52,7 +53,13 @@ class BulkPedidos(APIView):
 class CruceroBulkView(APIView):
     permission_classes = [IsAuthenticated]
 
+    
+
     def get(self, request):
+        import logging
+        log = logging.getLogger(__name__)
+        log.info("ordering param crudo → %s", request.query_params.getlist("ordering"))
+
         qs = PedidoCrucero.objects.all()
 
         ordering_raw = request.query_params.getlist("ordering")
