@@ -54,16 +54,25 @@ class CruceroBulkView(APIView):
     def get(self, request):
         qs = PedidoCrucero.objects.all()
 
-        # filtros opcionales (query-params)
-        sd = request.GET.get("service_date")
-        ship = request.GET.get("ship")
-        if sd:
-            qs = qs.filter(service_date=sd)
+        # Filtros simples
+        service_date = request.query_params.get("service_date")
+        ship         = request.query_params.get("ship")
+        if service_date:
+            qs = qs.filter(service_date=service_date)
         if ship:
             qs = qs.filter(ship=ship)
 
-        ser = PedidoCruceroSerializer(qs, many=True)
-        return Response(ser.data)
+        # Parámetro opcional de orden
+        # Uso: ?ordering=service_date,-sign
+        ordering = request.query_params.get("ordering")
+        if ordering:
+            # splitting por coma y desempacando
+            order_fields = [f.strip() for f in ordering.split(",") if f.strip()]
+            if order_fields:
+                qs = qs.order_by(*order_fields)
+
+        serializer = PedidoCruceroSerializer(qs, many=True)
+        return Response(serializer.data)
     def post(self, request):
         if not isinstance(request.data, list):
             return Response(
