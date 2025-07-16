@@ -51,7 +51,19 @@ class BulkPedidos(APIView):
 
 class CruceroBulkView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+    def get(self, request):
+        qs = PedidoCrucero.objects.all()
 
+        # filtros opcionales (query-params)
+        sd = request.GET.get("service_date")
+        ship = request.GET.get("ship")
+        if sd:
+            qs = qs.filter(service_date=sd)
+        if ship:
+            qs = qs.filter(ship=ship)
+
+        ser = PedidoCruceroSerializer(qs, many=True)
+        return Response(ser.data)
     def post(self, request):
         if not isinstance(request.data, list):
             return Response(
