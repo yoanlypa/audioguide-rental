@@ -1,5 +1,7 @@
 from django.shortcuts import render
-from rest_framework import viewsets, permissions, status          
+from rest_framework import viewsets, permissions, status, generics, filters
+from rest_framework import serializers
+from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from .models import Pedido, PedidoCrucero
 from .serializers import PedidoSerializer, PedidoCruceroSerializer
@@ -47,20 +49,19 @@ class BulkPedidos(APIView):
             ser.save()
             return Response({"created": len(ser.data)})
         return Response(ser.errors, status=status.HTTP_400_BAD_REQUEST)        
+class PedidoCruceroListView(generics.ListAPIView):
+    queryset = PedidoCrucero.objects.all()
+    serializer_class = PedidoCruceroSerializer
+    permission_classes = [IsAuthenticated]
 
+    # opcional: permitir filter / ordering automáticos
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ['service_date', 'ship', 'sign']
+    ordering = ['service_date', 'ship', 'sign']
 
 class CruceroBulkView(APIView):
     permission_classes = [permissions.IsAuthenticated]
-    serializer_class = PedidoCruceroSerializer
-    
-    def get(self, request):
-        cruceros = PedidoCrucero.objects.all()
-        serializer = PedidoCruceroSerializer(cruceros, many=True)
-        return Response(serializer.data)
-    @swagger_auto_schema(
-        request_body=PedidoCruceroSerializer(many=True),
-        responses={201: PedidoCruceroSerializer(many=True)}
-    )
+
     def post(self, request):
         if not isinstance(request.data, list):
             return Response(
