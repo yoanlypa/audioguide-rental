@@ -8,7 +8,6 @@ router.register(r'pedidos', PedidoViewSet, basename='pedido')
 urlpatterns = [
     path('', include(router.urls)),
     path("pedidos/bulk/", BulkPedidos.as_view()),
-    path("pedidos/cruceros/",     PedidoCruceroListView.as_view()),
 
     path("pedidos/cruceros/bulk/", CruceroBulkView.as_view()),
 ]

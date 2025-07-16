@@ -49,49 +49,47 @@ class BulkPedidos(APIView):
             ser.save()
             return Response({"created": len(ser.data)})
         return Response(ser.errors, status=status.HTTP_400_BAD_REQUEST)        
-class PedidoCruceroListView(generics.ListAPIView):
-    queryset = PedidoCrucero.objects.all()
-    serializer_class = PedidoCruceroSerializer
+class CruceroBulkView(APIView):
     permission_classes = [IsAuthenticated]
 
-    # opcional: permitir filter / ordering automáticos
-    filter_backends = [filters.OrderingFilter]
-    ordering_fields = ['service_date', 'ship', 'sign']
-    ordering = ['service_date', 'ship', 'sign']
+    def get(self, request):
+        """
+        Listado de todos los pedidos.
+        Soporta filtros por query-params: ?service_date=YYYY-MM-DD&ship=NombreBarco
+        """
+        qs = PedidoCrucero.objects.all()
+        sd   = request.query_params.get("service_date")
+        ship = request.query_params.get("ship")
+        if sd:
+            qs = qs.filter(service_date=sd)
+        if ship:
+            qs = qs.filter(ship=ship)
 
-class CruceroBulkView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+        serializer = PedidoCruceroSerializer(qs, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def post(self, request):
-        if not isinstance(request.data, list):
-            return Response(
-                {"detail": "Se esperaba una lista JSON."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        """
+        Inserción/actualización masiva (upsert).
+        Usa bulk_create(update_conflicts=True) o tu lógica actual.
+        """
         ser = PedidoCruceroSerializer(data=request.data, many=True)
         ser.is_valid(raise_exception=True)
 
         objs = [PedidoCrucero(**d) for d in ser.validated_data]
 
-        with transaction.atomic():
-            # Django 5+: hace UPSERT basado en la UniqueConstraint
-            created = PedidoCrucero.objects.bulk_create(
-                objs,
-                update_conflicts=True,
-                unique_fields=["service_date", "ship", "sign"],
-                update_fields=[
-                    "printing_date",
-                    "excursion",
-                    "language",
-                    "pax",
-                    "arrival_time",
-                    "status",
-                    "terminal",
-                    "supplier",
-                    "emergency_contact",
-                ],
-            )
-        return Response(
-            {"created": len(created), "updated": len(objs) - len(created)},
-            201
+        # Ejemplo con Django 5+ UPSERT:
+        created = PedidoCrucero.objects.bulk_create(
+            objs,
+            update_conflicts=True,
+            unique_fields=["service_date", "ship", "sign"],
+            update_fields=[
+                "printing_date", "supplier", "emergency_contact",
+                "service_date", "ship", "sign", "excursion",
+                "language", "pax", "arrival_time", "status", "terminal",
+            ],
         )
+        return Response(
+                {"created": len(created), "updated": len(objs) - len(created)},
+                status=status.HTTP_201_CREATED
+            )
