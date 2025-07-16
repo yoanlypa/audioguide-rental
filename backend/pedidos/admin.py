@@ -14,7 +14,11 @@ class PedidoCruceroAdmin(admin.ModelAdmin):
     list_filter   = ("service_date", "ship")
     search_fields = ("sign", "excursion", "language")
     date_hierarchy = "service_date"
+    ordering = ("service_date", "ship", "sign")
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("ship")
 
 admin.site.register(Pedido)
 admin.site.register(CustomUser, CustomUserAdmin)
 admin.site.register(Empresa)
+
