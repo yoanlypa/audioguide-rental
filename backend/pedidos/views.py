@@ -13,6 +13,7 @@ from rest_framework.response import Response
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from django.db import transaction
+from datetime import date
 
 class PedidoViewSet(viewsets.ModelViewSet):
     queryset = Pedido.objects.all()
@@ -91,23 +92,41 @@ class CruceroBulkView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def post(self, request):
-        ser = PedidoCruceroSerializer(data=request.data, many=True)
-        ser.is_valid(raise_exception=True)
+            ser = PedidoCruceroSerializer(data=request.data, many=True)
+            ser.is_valid(raise_exception=True)
 
-        objs = [PedidoCrucero(**d) for d in ser.validated_data]
-        with transaction.atomic():
-            created = PedidoCrucero.objects.bulk_create(
-                objs,
-                update_conflicts=True,
-                unique_fields=["service_date", "ship", "sign"],
-                update_fields=[
-                    "printing_date", "supplier", "emergency_contact",
-                    "service_date", "ship", "sign", "excursion",
-                    "language", "pax", "arrival_time", "status", "terminal",
-                ],
+            # 1) elegir la fila con printing_date más reciente para cada clave
+            latest: dict[tuple, dict] = {}
+            for d in ser.validated_data:
+                key = (d["service_date"], d["ship"], d["sign"], d["status"])
+                pd_new = (
+                    date.fromisoformat(d["printing_date"])
+                    if d.get("printing_date") else date.min
+                )
+                pd_old = (
+                    date.fromisoformat(latest[key]["printing_date"])
+                    if key in latest and latest[key].get("printing_date")
+                    else date.min
+                )
+                if pd_new >= pd_old:
+                    latest[key] = d
+
+            objs = [PedidoCrucero(**d) for d in latest.values()]
+
+            # 2) UPSERT masivo
+            with transaction.atomic():
+                created = PedidoCrucero.objects.bulk_create(
+                    objs,
+                    update_conflicts=True,
+                    unique_fields=["service_date", "ship", "sign", "status"],
+                    update_fields=[
+                        "printing_date", "supplier", "emergency_contact",
+                        "excursion", "language", "pax",
+                        "arrival_time", "terminal",
+                    ],
+                )
+
+            return Response(
+                {"created": len(created), "updated": len(objs) - len(created)},
+                status=status.HTTP_201_CREATED,
             )
-
-        return Response(
-            {"created": len(created), "updated": len(objs) - len(created)},
-            status=status.HTTP_201_CREATED,
-        )
