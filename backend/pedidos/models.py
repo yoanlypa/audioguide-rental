@@ -78,4 +78,10 @@ class PedidoCrucero(models.Model):
     uploaded_at        = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-       ordering = ["service_date", "ship", "sign"]
+        ordering = ["service_date", "ship", "sign"]
+        constraints = [
+                models.UniqueConstraint(
+                    fields=["service_date", "ship", "sign"],
+                    name="uniq_servdate_ship_sign"
+                )
+            ]
