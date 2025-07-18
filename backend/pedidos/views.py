@@ -13,7 +13,8 @@ from rest_framework.response import Response
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from django.db import transaction
-from datetime import date
+from datetime import date, datetime
+
 
 class PedidoViewSet(viewsets.ModelViewSet):
     queryset = Pedido.objects.all()
@@ -23,19 +24,22 @@ class PedidoViewSet(viewsets.ModelViewSet):
     @swagger_auto_schema(
         manual_parameters=[
             openapi.Parameter(
-                "sede", openapi.IN_QUERY, description="Filtra por sede", type=openapi.TYPE_STRING
+                "sede",
+                openapi.IN_QUERY,
+                description="Filtra por sede",
+                type=openapi.TYPE_STRING,
             )
         ]
     )
-       
     def get_queryset(self):
         # Devuelve solo los pedidos del usuario autenticado
         return Pedido.objects.filter(user=self.request.user)
-    
+
 
 class EmailTokenObtainPairView(TokenObtainPairView):
     serializer_class = EmailTokenObtainPairSerializer
-    
+
+
 class MisPedidosView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -43,21 +47,25 @@ class MisPedidosView(APIView):
         pedidos = Pedido.objects.filter(user=request.user)
         serializer = PedidoSerializer(pedidos, many=True)
         return Response(serializer.data)
+
+
 class BulkPedidos(APIView):
-    permission_classes = [IsAuthenticated]        
+    permission_classes = [IsAuthenticated]
+
     def post(self, request):
         ser = PedidoSerializer(data=request.data, many=True)
         if ser.is_valid():
             ser.save()
             return Response({"created": len(ser.data)})
-        return Response(ser.errors, status=status.HTTP_400_BAD_REQUEST)        
+        return Response(ser.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
 class CruceroBulkView(APIView):
     permission_classes = [IsAuthenticated]
 
-    
-
     def get(self, request):
         import logging
+
         log = logging.getLogger(__name__)
         log.info("ordering param crudo → %s", request.query_params.getlist("ordering"))
 
@@ -68,8 +76,9 @@ class CruceroBulkView(APIView):
         order_fields: list[str] = []
         for item in ordering_raw:
             # Si viene como lista JSON dentro del query (?ordering=["camp1","camp2"])
-            if isinstance(item, str) and item.startswith('['):
+            if isinstance(item, str) and item.startswith("["):
                 import json, ast
+
                 try:
                     # intenta JSON first
                     parsed = json.loads(item)
@@ -92,41 +101,47 @@ class CruceroBulkView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def post(self, request):
-            ser = PedidoCruceroSerializer(data=request.data, many=True)
-            ser.is_valid(raise_exception=True)
+        ser = PedidoCruceroSerializer(data=request.data, many=True)
+        ser.is_valid(raise_exception=True)
 
-            # 1) elegir la fila con printing_date más reciente para cada clave
-            latest: dict[tuple, dict] = {}
-            for d in ser.validated_data:
-                key = (d["service_date"], d["ship"], d["sign"], d["status"])
-                pd_new = (
-                    date.fromisoformat(d["printing_date"])
-                    if d.get("printing_date") else date.min
-                )
-                pd_old = (
-                    date.fromisoformat(latest[key]["printing_date"])
-                    if key in latest and latest[key].get("printing_date")
-                    else date.min
-                )
-                if pd_new >= pd_old:
-                    latest[key] = d
+        def _to_date(val) -> date:
+            if isinstance(val, str):
+                return date.fromisoformat(val)
+            if isinstance(val, datetime):
+                return val.date()
+            if isinstance(val, date):
+                return val
+            return date.min
 
-            objs = [PedidoCrucero(**d) for d in latest.values()]
+        latest = {}
+        for d in ser.validated_data:
+            key = (d["service_date"], d["ship"], d["sign"], d["status"])
+            if _to_date(d.get("printing_date")) >= _to_date(
+                latest.get(key, {}).get("printing_date")
+            ):
+                latest[key] = d
 
-            # 2) UPSERT masivo
-            with transaction.atomic():
-                created = PedidoCrucero.objects.bulk_create(
-                    objs,
-                    update_conflicts=True,
-                    unique_fields=["service_date", "ship", "sign", "status"],
-                    update_fields=[
-                        "printing_date", "supplier", "emergency_contact",
-                        "excursion", "language", "pax",
-                        "arrival_time", "terminal",
-                    ],
-                )
+        objs = [PedidoCrucero(**d) for d in latest.values()]
 
-            return Response(
-                {"created": len(created), "updated": len(objs) - len(created)},
-                status=status.HTTP_201_CREATED,
+        # 2) UPSERT masivo
+        with transaction.atomic():
+            created = PedidoCrucero.objects.bulk_create(
+                objs,
+                update_conflicts=True,
+                unique_fields=["service_date", "ship", "sign", "status"],
+                update_fields=[
+                    "printing_date",
+                    "supplier",
+                    "emergency_contact",
+                    "excursion",
+                    "language",
+                    "pax",
+                    "arrival_time",
+                    "terminal",
+                ],
             )
+
+        return Response(
+            {"created": len(created), "updated": len(objs) - len(created)},
+            status=status.HTTP_201_CREATED,
+        )
