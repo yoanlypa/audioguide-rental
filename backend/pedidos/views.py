@@ -14,6 +14,7 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from django.db import transaction
 from datetime import date, datetime
+import logging, json, ast
 
 
 class PedidoViewSet(viewsets.ModelViewSet):
@@ -60,88 +61,83 @@ class BulkPedidos(APIView):
         return Response(ser.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+
 class CruceroBulkView(APIView):
     permission_classes = [IsAuthenticated]
 
+    # ---------- GET con ordering flexible (tal como tenías) ----------
     def get(self, request):
-        import logging
-
         log = logging.getLogger(__name__)
         log.info("ordering param crudo → %s", request.query_params.getlist("ordering"))
 
         qs = PedidoCrucero.objects.all()
-
         ordering_raw = request.query_params.getlist("ordering")
 
         order_fields: list[str] = []
         for item in ordering_raw:
-            # Si viene como lista JSON dentro del query (?ordering=["camp1","camp2"])
             if isinstance(item, str) and item.startswith("["):
-                import json, ast
-
                 try:
-                    # intenta JSON first
                     parsed = json.loads(item)
                 except Exception:
-                    # fallback: literal_eval de la lista
                     parsed = ast.literal_eval(item)
                 if isinstance(parsed, list):
                     order_fields.extend([str(x).strip() for x in parsed])
             else:
-                # split por comas para casos ?ordering=camp1,-camp2
                 order_fields.extend([p.strip() for p in item.split(",") if p.strip()])
 
-        # quita duplicados y valores vacíos
         order_fields = [f for f in dict.fromkeys(order_fields) if f]
-
         if order_fields:
             qs = qs.order_by(*order_fields)
 
         serializer = PedidoCruceroSerializer(qs, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    # ---------- POST con reglas preliminary/final ----------
     def post(self, request):
         ser = PedidoCruceroSerializer(data=request.data, many=True)
         ser.is_valid(raise_exception=True)
+        rows = ser.validated_data
 
-        def _to_date(val) -> date:
-            if isinstance(val, str):
-                return date.fromisoformat(val)
-            if isinstance(val, datetime):
-                return val.date()
-            if isinstance(val, date):
-                return val
-            return date.min
+        created = overwritten = blocked = 0
+        blocked_rows: list[dict] = []
 
-        latest = {}
-        for d in ser.validated_data:
-            key = (d["service_date"], d["ship"], d["sign"], d["status"])
-            if _to_date(d.get("printing_date")) >= _to_date(
-                latest.get(key, {}).get("printing_date")
-            ):
-                latest[key] = d
-
-        objs = [PedidoCrucero(**d) for d in latest.values()]
-
-        # 2) UPSERT masivo
         with transaction.atomic():
-            created = PedidoCrucero.objects.bulk_create(
-                objs,
-                update_conflicts=True,
-                unique_fields=["service_date", "ship", "sign", "status"],
-                update_fields=[
-                    "printing_date",
-                    "supplier",
-                    "emergency_contact",
-                    "excursion",
-                    "language",
-                    "pax",
-                    "arrival_time",
-                    "terminal",
-                ],
-            )
+            for row in rows:
+                key = dict(
+                    service_date=row["service_date"],
+                    ship=row["ship"],
+                    sign=row["sign"],
+                )
+                qs = PedidoCrucero.objects.filter(**key)
+                if qs.exists():
+                    current = qs.first()
+                    # regla: final + preliminary = bloqueado
+                    if current.status == "final" and row["status"] == "preliminary":
+                        blocked += 1
+                        blocked_rows.append(
+                            {"ship": current.ship, "service_date": current.service_date, "sign": current.sign}
+                        )
+                        continue
+                    # cualquier otro caso → sobrescribimos
+                    qs.delete()
+                    overwritten += 1
+                PedidoCrucero.objects.create(**row)
+                created += 1
 
         return Response(
-            {"created": len(created), "updated": len(objs) - len(created)},
+            {
+                "created": created,
+                "overwritten": overwritten,
+                "blocked": blocked,
+                "blocked_rows": blocked_rows,
+            },
             status=status.HTTP_201_CREATED,
         )
+
+# feedback se guarda en una lista en request para que Middleware/Response
+def _add_feedback(self, ship, sd, status, n):
+    msg = (
+        f"♻️ Sobrescrito {ship} {sd} ({status}) "
+        f"con {n} excursiones nuevas"
+    )
+    getattr(self.request, "_feedback", []).append(msg)
