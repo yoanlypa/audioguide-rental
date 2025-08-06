@@ -72,6 +72,7 @@ MIDDLEWARE = [
     "allauth.account.middleware.AccountMiddleware",  # 👈 ESTA ES LA NUEVA
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "pedidos.middleware.FeedbackMiddleware",
 ]
 
 

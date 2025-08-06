@@ -60,30 +60,31 @@ class Pedido(models.Model):
             super().save(*args, **kwargs)
 
 class PedidoCrucero(models.Model):
-    # --- metadatos (se repiten en cada fila importada) ---
     printing_date      = models.DateField()
     supplier           = models.CharField(max_length=200)
     emergency_contact  = models.CharField(max_length=100, blank=True)
     service_date       = models.DateField()
     ship               = models.CharField(max_length=100)
-    status             = models.CharField(max_length=20, blank=True)   # preliminary / final
-    terminal           = models.CharField(max_length=50, blank=True)
 
-    # --- datos de cada maleta ---
-    sign               = models.CharField(max_length=20)
-    excursion          = models.CharField(max_length=200)
-    language           = models.CharField(max_length=50, blank=True)
-    pax                = models.PositiveIntegerField()
-    arrival_time       = models.TimeField(null=True, blank=True)
-    uploaded_at        = models.DateTimeField(auto_now_add=True)
+    sign         = models.CharField(max_length=20)          # nº bus
+    excursion    = models.CharField(max_length=200)
+    language     = models.CharField(max_length=50, blank=True)
+    pax          = models.PositiveIntegerField()
+    arrival_time = models.TimeField(null=True, blank=True)
+
+    status   = models.CharField(max_length=20)              # preliminary / final
+    terminal = models.CharField(max_length=50, blank=True)
+
+    uploaded_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ['service_date', 'ship', 'sign']
-        verbose_name = "Pedido Crucero"
-        verbose_name_plural = "Pedidos Cruceros"
-        # Asegura que no se repitan los mismos datos de servicio
-        unique_together = ('service_date', 'ship', 'sign', 'status')
-
+        # 🔑 Único por fecha-barco-sign (ya no incluye status)
+        constraints = [
+            models.UniqueConstraint(
+                fields=["service_date", "ship", "sign"],
+                name="uniq_service_ship_sign",
+            )
+        ]
         
     def __str__(self):
         return f"{self.service_date} - {self.ship} - {self.sign} - {self.status}"

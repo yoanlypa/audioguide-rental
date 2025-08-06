@@ -74,8 +74,28 @@ class PedidoCruceroSerializer(serializers.ModelSerializer):
         model  = PedidoCrucero
         fields = "__all__"
 
-    def validate(self, attrs):
-        # PAX no puede ser 0
-        if attrs["pax"] <= 0:
-            raise serializers.ValidationError({"pax": "Debe ser mayor que cero."})
-        return attrs
+    def create(self, validated):
+        key = {
+            "service_date": validated["service_date"],
+            "ship":        validated["ship"],
+            "sign":        validated["sign"],
+        }
+        nuevo_status = validated["status"]
+
+        existente = PedidoCrucero.objects.filter(**key).first()
+
+        if existente:
+            # 1️⃣  Si el existente es FINAL y llega PRELIMINARY → error
+            if existente.status == "final" and nuevo_status == "preliminary":
+                raise serializers.ValidationError(
+                    "Registro final ya confirmado; no se puede reemplazar por preliminary."
+                )
+            # 2️⃣  En cualquier otro caso, sobreescribimos
+            for campo, valor in validated.items():
+                setattr(existente, campo, valor)
+            existente.save()
+            self.instance = existente
+            return existente
+
+        # 3️⃣  No existe → creamos normalmente
+        return PedidoCrucero.objects.create(**validated)
