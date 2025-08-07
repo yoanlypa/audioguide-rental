@@ -81,10 +81,13 @@ class PedidoCrucero(models.Model):
         # 🔑 Único por fecha-barco-sign (ya no incluye status)
         constraints = [
             models.UniqueConstraint(
-                fields=["service_date", "ship", "sign"],
-                name="uniq_service_ship_sign",
+                fields=["service_date", "ship"],
+                name="uniq_service_ship",
             )
+        ]
+        indexes = [
+            models.Index(fields=["service_date", "ship"], name="idx_ship_date"),
         ]
         
     def __str__(self):
-        return f"{self.service_date} - {self.ship} - {self.sign} - {self.status}"
+        return f"{self.service_date} - {self.ship} - {self.status}"
