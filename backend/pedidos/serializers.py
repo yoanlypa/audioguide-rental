@@ -4,6 +4,8 @@ from .models import CustomUser
 from django.contrib.auth import authenticate, get_user_model
 from rest_framework import exceptions
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework import serializers
+from .models import PedidoCrucero
 
 User = get_user_model()
 
@@ -73,7 +75,13 @@ class PedidoCruceroSerializer(serializers.ModelSerializer):
     class Meta:
         model  = PedidoCrucero
         fields = "__all__"
-
+        extra_kwargs = {
+            # ❌ No exigir emergency_contact
+            "emergency_contact": {"required": False, "allow_blank": True},
+            # ✉️ Otros campos opcionales
+            "language":   {"required": False, "allow_blank": True},
+            "arrival_time": {"required": False, "allow_null": True},
+        }
     def create(self, validated):
         key = {
             "service_date": validated["service_date"],
@@ -99,3 +107,11 @@ class PedidoCruceroSerializer(serializers.ModelSerializer):
 
         # 3️⃣  No existe → creamos normalmente
         return PedidoCrucero.objects.create(**validated)
+
+
+    def validate(self, attrs):
+        if not attrs.get("service_date") or not attrs.get("ship"):
+            raise serializers.ValidationError(
+                "service_date y ship son obligatorios."
+            )
+        return attrs
