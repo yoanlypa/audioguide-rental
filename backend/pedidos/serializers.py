@@ -75,6 +75,7 @@ class PedidoCruceroSerializer(serializers.ModelSerializer):
     class Meta:
         model  = PedidoCrucero
         fields = "__all__"
+        read_only_fields = ["uploaded_at", "updated_at"]
         extra_kwargs = {
             # ❌ No exigir emergency_contact
             "emergency_contact": {"required": False, "allow_blank": True},
