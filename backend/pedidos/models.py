@@ -76,11 +76,13 @@ class PedidoCrucero(models.Model):
     terminal = models.CharField(max_length=50, blank=True)
 
     uploaded_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         indexes = [
             models.Index(fields=["service_date", "ship"], name="idx_ship_date"),
         ]
+        ordering = ["-updated_at", "-uploaded_at"]
         
     def __str__(self):
         return f"{self.service_date} - {self.ship} - {self.status}"
