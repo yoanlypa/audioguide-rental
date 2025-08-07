@@ -100,35 +100,36 @@ class CruceroBulkView(APIView):
         rows = ser.validated_data
 
         created = overwritten = blocked = 0
-        blocked_groups: list[dict] = []
+        blocked_groups = []
 
-        # 🔑 Agrupamos SOLO por fecha + barco
-        grouping: dict[tuple, list] = {}
+        # 🔑 Agrupar por barco-fecha (sign ignorado)
+        groups: dict[tuple, list] = {}
         for r in rows:
-            key = (r["service_date"], r["ship"])
-            grouping.setdefault(key, []).append(r)
+            groups.setdefault((r["service_date"], r["ship"]), []).append(r)
 
         with transaction.atomic():
-            for (service_date, ship), lote in grouping.items():
-                new_status = lote[0]["status"]   # todo el Excel lleva el mismo status
+            for (service_date, ship), lote in groups.items():
+                new_status = lote[0]["status"].lower()           # case-insensitive
 
-                qs = PedidoCrucero.objects.filter(
-                    service_date=service_date, ship=ship
-                )
+                qs = PedidoCrucero.objects.filter(service_date=service_date,
+                                                  ship=ship)
 
-                # ‼️ Regla de bloqueo: existe FINAL y viene PRELIMINARY
-                if qs.filter(status="final").exists() and new_status == "preliminary":
+                # ¿Hay algún FINAL existente?
+                final_exists = qs.filter(status__iexact="final").exists()
+
+                # ─── Regla de control ────────────────────────────
+                if new_status == "preliminary" and final_exists:
                     blocked += len(lote)
                     blocked_groups.append(
                         {"service_date": service_date, "ship": ship}
                     )
-                    continue
+                    continue  # no tocamos nada
 
-                # 🗑️ Eliminar todo lo existente (sea preliminary o final)
+                # Borramos todo lo previo (sea prelim o final)
                 overwritten += qs.count()
                 qs.delete()
 
-                # 🚀 Insertar filas nuevas
+                # Insertamos todo el lote tal cual (permitimos signs duplicados)
                 PedidoCrucero.objects.bulk_create(
                     [PedidoCrucero(**r) for r in lote]
                 )
