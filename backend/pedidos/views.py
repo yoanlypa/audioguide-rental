@@ -93,43 +93,53 @@ class CruceroBulkView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     # ---------- POST con reglas preliminary/final ----------
+    
     def post(self, request):
         ser = PedidoCruceroSerializer(data=request.data, many=True)
         ser.is_valid(raise_exception=True)
         rows = ser.validated_data
 
         created = overwritten = blocked = 0
-        blocked_rows: list[dict] = []
+        blocked_groups: list[dict] = []
+
+        # 🔑 Agrupamos SOLO por fecha + barco
+        grouping: dict[tuple, list] = {}
+        for r in rows:
+            key = (r["service_date"], r["ship"])
+            grouping.setdefault(key, []).append(r)
 
         with transaction.atomic():
-            for row in rows:
-                key = dict(
-                    service_date=row["service_date"],
-                    ship=row["ship"],
-                    sign=row["sign"],
+            for (service_date, ship), lote in grouping.items():
+                new_status = lote[0]["status"]   # todo el Excel lleva el mismo status
+
+                qs = PedidoCrucero.objects.filter(
+                    service_date=service_date, ship=ship
                 )
-                qs = PedidoCrucero.objects.filter(**key)
-                if qs.exists():
-                    current = qs.first()
-                    # regla: final + preliminary = bloqueado
-                    if current.status == "final" and row["status"] == "preliminary":
-                        blocked += 1
-                        blocked_rows.append(
-                            {"ship": current.ship, "service_date": current.service_date, "sign": current.sign}
-                        )
-                        continue
-                    # cualquier otro caso → sobrescribimos
-                    qs.delete()
-                    overwritten += 1
-                PedidoCrucero.objects.create(**row)
-                created += 1
+
+                # ‼️ Regla de bloqueo: existe FINAL y viene PRELIMINARY
+                if qs.filter(status="final").exists() and new_status == "preliminary":
+                    blocked += len(lote)
+                    blocked_groups.append(
+                        {"service_date": service_date, "ship": ship}
+                    )
+                    continue
+
+                # 🗑️ Eliminar todo lo existente (sea preliminary o final)
+                overwritten += qs.count()
+                qs.delete()
+
+                # 🚀 Insertar filas nuevas
+                PedidoCrucero.objects.bulk_create(
+                    [PedidoCrucero(**r) for r in lote]
+                )
+                created += len(lote)
 
         return Response(
             {
                 "created": created,
                 "overwritten": overwritten,
                 "blocked": blocked,
-                "blocked_rows": blocked_rows,
+                "blocked_groups": blocked_groups,
             },
             status=status.HTTP_201_CREATED,
         )

@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('pedidos', '0006_alter_pedidocrucero_unique_together'),
+        ('pedidos', '0007_dedupe_before_unique'),
     ]
 
     operations = [
