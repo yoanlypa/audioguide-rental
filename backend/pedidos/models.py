@@ -78,13 +78,6 @@ class PedidoCrucero(models.Model):
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        # 🔑 Único por fecha-barco-sign (ya no incluye status)
-        constraints = [
-            models.UniqueConstraint(
-                fields=["service_date", "ship"],
-                name="uniq_service_ship",
-            )
-        ]
         indexes = [
             models.Index(fields=["service_date", "ship"], name="idx_ship_date"),
         ]
