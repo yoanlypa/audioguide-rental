@@ -14,17 +14,9 @@ class Migration(migrations.Migration):
             name='pedidocrucero',
             options={},
         ),
-        migrations.AlterUniqueTogether(
-            name='pedidocrucero',
-            unique_together=set(),
-        ),
         migrations.AlterField(
             model_name='pedidocrucero',
             name='status',
             field=models.CharField(max_length=20),
-        ),
-        migrations.AddConstraint(
-            model_name='pedidocrucero',
-            constraint=models.UniqueConstraint(fields=('service_date', 'ship', 'sign'), name='uniq_service_ship_sign'),
         ),
     ]
