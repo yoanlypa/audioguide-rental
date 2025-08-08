@@ -68,26 +68,37 @@ class CruceroBulkView(APIView):
     # ---------- GET con ordering flexible (tal como tenías) ----------
     def get(self, request):
         log = logging.getLogger(__name__)
-        log.info("ordering param crudo → %s", request.query_params.getlist("ordering"))
+        ordering_raw = request.query_params.getlist("ordering")
+        log.info("ordering param crudo → %s", ordering_raw)
 
         qs = PedidoCrucero.objects.all()
-        ordering_raw = request.query_params.getlist("ordering")
 
-        order_fields: list[str] = []
-        for item in ordering_raw:
-            if isinstance(item, str) and item.startswith("["):
+        if ordering_raw:
+            order_fields: list[str] = []
+            for item in ordering_raw:
+                if isinstance(item, str) and item.startswith("["):
+                    try:
+                        parsed = json.loads(item)
+                    except Exception:
+                        parsed = ast.literal_eval(item)
+                    if isinstance(parsed, list):
+                        order_fields.extend([str(x).strip() for x in parsed if str(x).strip()])
+                else:
+                    order_fields.extend([p.strip() for p in item.split(",") if p.strip()])
+
+            # quita duplicados conservando orden
+            order_fields = [f for f in dict.fromkeys(order_fields) if f]
+
+            if order_fields:
                 try:
-                    parsed = json.loads(item)
-                except Exception:
-                    parsed = ast.literal_eval(item)
-                if isinstance(parsed, list):
-                    order_fields.extend([str(x).strip() for x in parsed])
+                    qs = qs.order_by(*order_fields)
+                except Exception as e:
+                    log.warning("ordering inválido %s → fallback por defecto (%s)", order_fields, e)
+                    qs = qs.order_by("-updated_at", "-uploaded_at")
             else:
-                order_fields.extend([p.strip() for p in item.split(",") if p.strip()])
-
-        order_fields = [f for f in dict.fromkeys(order_fields) if f]
-        if order_fields:
-            qs = qs.order_by(*order_fields)
+                qs = qs.order_by("-updated_at", "-uploaded_at")
+        else:
+            qs = qs.order_by("-updated_at", "-uploaded_at")
 
         serializer = PedidoCruceroSerializer(qs, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
