@@ -10,14 +10,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AlterModelOptions(
-            name='pedidocrucero',
-            options={'ordering': ['-updated_at', '-uploaded_at']},
-        ),
-        migrations.AlterUniqueTogether(
-            name='pedidocrucero',
-            unique_together=set(),
-        ),
         migrations.AddField(
             model_name='pedidocrucero',
             name='updated_at',
