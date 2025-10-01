@@ -25,7 +25,6 @@ class Pedido(models.Model):
         user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)    
         empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='pedidos')
         fecha_creacion = models.DateTimeField(auto_now_add=True)
-        updates = models.JSONField(default=list)
         excursion = models.CharField(max_length=150, blank=True)
         fecha_inicio = models.DateField()
         fecha_fin = models.DateField(blank=True, null=True)
@@ -52,11 +51,47 @@ class Pedido(models.Model):
         emisores = models.PositiveIntegerField()
         pax = models.PositiveIntegerField()
         guia = models.CharField(max_length=150, blank=True)
+        updates = models.JSONField(default=list, blank=True, editable=False)
+
         
         
         def save(self, *args, **kwargs):
             if self.pk:
                 self.updates.append(now().isoformat())
+            super().save(*args, **kwargs)
+
+           # --- helpers internos ---
+        def _log_update(self, event, user=None, note=None):
+            """Registrar un evento en 'updates'."""
+            entry = {
+                "ts": timezone.now().isoformat(),  # ISO 8601
+                "event": str(event),
+            }
+            if user:
+                entry["user_id"] = user.pk
+                entry["user"] = getattr(user, "username", "") or getattr(user, "email", "")
+            if note:
+                entry["note"] = str(note)
+            self.updates = (self.updates or []) + [entry]
+    
+        # --- helpers de estado ---
+        def set_delivered(self, user=None, note=None):
+            self.estado = "entregado"
+            self.entregado = True
+            self._log_update("delivered", user=user, note=note)
+            self.save(update_fields=["estado", "entregado", "updates", "fecha_modificacion"])
+    
+        def set_collected(self, user=None, note=None):
+            self.estado = "recogido"
+            self.recogido = True
+            self._log_update("collected", user=user, note=note)
+            self.save(update_fields=["estado", "recogido", "updates", "fecha_modificacion"])
+    
+        # --- override save para inicializar 'updates' al crear ---
+        def save(self, *args, **kwargs):
+            is_new = self.pk is None
+            if is_new and not self.updates:
+                self.updates = [{"ts": timezone.now().isoformat(), "event": "created"}]
             super().save(*args, **kwargs)
 
 class PedidoCrucero(models.Model):
