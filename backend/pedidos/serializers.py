@@ -49,13 +49,10 @@ class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
 
 
 class PedidoSerializer(serializers.ModelSerializer):
-    empresa_nombre = serializers.CharField(source="empresa.nombre", read_only=True)
-
     class Meta:
         model = Pedido
         fields = "__all__"
-        read_only_fields = ["user", "empresa", "fecha_creacion", "updates"]
-
+        read_only_fields = ["id", "fecha_creacion", "fecha_modificacion", "updates"]
     def create(self, validated_data):
         request = self.context["request"]
         validated_data["user"] = request.user
@@ -70,6 +67,20 @@ class PedidoSerializer(serializers.ModelSerializer):
 
         # Elimina servicios existentes
         instance.servicios.all().delete()
+
+class PedidoOpsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Pedido
+        fields = [
+            "id", "empresa", "excursion",
+            "lugar_entrega", "lugar_recogida",
+            "fecha_inicio", "fecha_fin",
+            "estado", "entregado", "recogido",
+            "fecha_creacion", "fecha_modificacion",
+        ]
+        read_only_fields = ["fecha_creacion", "fecha_modificacion"]
+
+
 
 class PedidoCruceroSerializer(serializers.ModelSerializer):
     class Meta:
