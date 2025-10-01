@@ -163,3 +163,81 @@ def _add_feedback(self, ship, sd, status, n):
         f"con {n} excursiones nuevas"
     )
     getattr(self.request, "_feedback", []).append(msg)
+
+
+from .serializers import PedidoOpsSerializer
+
+def _parse_dt(value: str):
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if timezone.is_naive(dt):
+            dt = timezone.make_aware(dt)
+        return dt
+    except Exception:
+        return None
+
+class IsAuthenticatedAndOwnerOrStaff(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated)
+    def has_object_permission(self, request, view, obj):
+        if request.user.is_staff:
+            return True
+        return getattr(obj, "usuario_id", None) == request.user.id
+
+class PedidoOpsViewSet(viewsets.ModelViewSet):
+    """
+    /api/ops/pedidos/ → listado y acciones para trabajadores.
+    Staff: ve todos; no staff: solo los suyos (usuario=request.user).
+    Filtros (query params):
+      - status=pagado,entregado,recogido
+      - date_from=ISO
+      - date_to=ISO
+    """
+    serializer_class = PedidoOpsSerializer
+    permission_classes = [IsAuthenticatedAndOwnerOrStaff]
+
+    def get_queryset(self):
+        qs = Pedido.objects.all().order_by("-fecha_modificacion")
+        user = self.request.user
+        if not user.is_staff:
+            qs = qs.filter(usuario=user)
+
+        status_param = self.request.query_params.get("status")
+        if status_param:
+            parts = [p.strip() for p in status_param.split(",") if p.strip()]
+            if parts:
+                qs = qs.filter(estado__in=parts)
+
+        date_from = _parse_dt(self.request.query_params.get("date_from"))
+        date_to   = _parse_dt(self.request.query_params.get("date_to"))
+        if date_from:
+            qs = qs.filter(fecha_inicio__gte=date_from)
+        if date_to:
+            qs = qs.filter(fecha_inicio__lte=date_to)
+
+        return qs
+
+    @action(detail=True, methods=["post"])
+    def delivered(self, request, pk=None):
+        obj = self.get_object()
+        obj.set_delivered(user=request.user)
+        return Response({"ok": True, "status": "entregado", "id": obj.id})
+
+    @action(detail=True, methods=["post"])
+    def collected(self, request, pk=None):
+        obj = self.get_object()
+        obj.set_collected(user=request.user)
+        return Response({"ok": True, "status": "recogido", "id": obj.id})
+
+    @api_view(["GET"])
+    @permission_classes([permissions.IsAuthenticated])
+    def me_view(request):
+        u = request.user
+        return Response({
+            "id": u.id,
+            "username": getattr(u, "username", ""),
+            "email": getattr(u, "email", ""),
+            "is_staff": getattr(u, "is_staff", False),
+        })
