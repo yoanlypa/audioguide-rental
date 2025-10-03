@@ -96,10 +96,11 @@ class PedidoOpsSerializer(serializers.ModelSerializer):
             "bono",
             "guia",
             "tipo_servicio",
+            "emisores",          # <-- NUEVO
             "notas",
             "updates",
             "fecha_creacion",
-            "fecha_modificacion",
+            # "fecha_modificacion",
             "entregado",
             "recogido",
         )
@@ -115,18 +116,19 @@ class PedidoOpsSerializer(serializers.ModelSerializer):
     def get_recogido(self, obj):
         return (getattr(obj, "estado", "") or "").lower() == "recogido"
 
-# ===== ESCRITURA (crear/editar) =====
+
+# --- ESCRITURA ---
 class PedidoOpsWriteSerializer(serializers.ModelSerializer):
-    # Tratar fechas flexibles (date o datetime ISO)
+    # fechas flexibles ya como lo tenías
     fecha_inicio = DateOrDateTimeToDateField(required=True)
     fecha_fin = DateOrDateTimeToDateField(required=False, allow_null=True)
-    # Evitar error de "choice inválido" aquí; dejamos que pase cualquier string
     tipo_servicio = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    emisores = serializers.CharField(required=False, allow_blank=True, allow_null=True, default="")  # <-- NUEVO
 
     class Meta:
         model = Pedido
         fields = (
-            "empresa",          # FK por ID
+            "empresa",
             "excursion",
             "estado",
             "lugar_entrega",
@@ -137,6 +139,7 @@ class PedidoOpsWriteSerializer(serializers.ModelSerializer):
             "bono",
             "guia",
             "tipo_servicio",
+            "emisores",          # <-- NUEVO
             "notas",
         )
         extra_kwargs = {
@@ -152,6 +155,9 @@ class PedidoOpsWriteSerializer(serializers.ModelSerializer):
         ff = attrs.get("fecha_fin")
         if ff and fi and ff < fi:
             raise serializers.ValidationError({"fecha_fin": "Debe ser >= fecha_inicio."})
+        # default defensivo para NOT NULL
+        if not attrs.get("emisores"):
+            attrs["emisores"] = ""
         return attrs
     
 class PedidoCruceroSerializer(serializers.ModelSerializer):
