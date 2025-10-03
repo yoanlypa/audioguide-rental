@@ -15,3 +15,4 @@ urlpatterns = [
     path("pedidos/cruceros/bulk/", CruceroBulkView.as_view()),
     path("me/", me_view, name="me"),
 ]
+urlpatterns += router.urls
