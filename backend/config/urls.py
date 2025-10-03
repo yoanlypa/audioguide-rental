@@ -56,7 +56,7 @@ urlpatterns = [
     path("redoc/",   schema_view.with_ui("redoc",   cache_timeout=0), name="schema-redoc"),
  
     # endpoints de pedidos
-    path("api/", include("pedidos.urls")),
+    path("api/", include("pedidos.api_urls")),
     path("pedidos/bulk/", BulkPedidos.as_view()),
     path('pedidos/cruceros/bulk/', CruceroBulkView.as_view()),
     path('mis-pedidos/', MisPedidosView.as_view()),
