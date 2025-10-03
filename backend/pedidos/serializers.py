@@ -68,18 +68,51 @@ class PedidoSerializer(serializers.ModelSerializer):
         # Elimina servicios existentes
         instance.servicios.all().delete()
 
+
 class PedidoOpsSerializer(serializers.ModelSerializer):
+    # mostramos la empresa como texto
+    empresa = serializers.SerializerMethodField()
+    # flags DERIVADOS (no son campos reales en la BD)
+    entregado = serializers.SerializerMethodField()
+    recogido = serializers.SerializerMethodField()
+
     class Meta:
         model = Pedido
-        fields = [
-            "id", "empresa", "excursion",
-            "lugar_entrega", "lugar_recogida",
-            "fecha_inicio", "fecha_fin",
-            "estado", "entregado", "recogido",
-            "fecha_creacion", "fecha_modificacion",
-        ]
-        read_only_fields = ["fecha_creacion", "fecha_modificacion"]
+        fields = (
+            "id",
+            "empresa",
+            "excursion",
+            "estado",
+            "lugar_entrega",
+            "lugar_recogida",
+            "fecha_inicio",
+            "fecha_fin",
+            "pax",
+            "bono",
+            "guia",
+            "tipo_servicio",
+            "notas",
+            "updates",
+            "fecha_creacion",
+            # OJO: si tu modelo YA tiene fecha_modificacion y está migrado, puedes descomentar:
+            # "fecha_modificacion",
+            "entregado",
+            "recogido",
+        )
+        read_only_fields = fields  # este serializer es solo lectura para el board
 
+    def get_empresa(self, obj):
+        # si empresa es FK, str(obj.empresa) devuelve su __str__
+        val = getattr(obj, "empresa", None)
+        return str(val) if val is not None else ""
+
+    def get_entregado(self, obj):
+        # derivado del estado
+        return (getattr(obj, "estado", "") or "").lower() == "entregado"
+
+    def get_recogido(self, obj):
+        # derivado del estado
+        return (getattr(obj, "estado", "") or "").lower() == "recogido"
 
 
 class PedidoCruceroSerializer(serializers.ModelSerializer):

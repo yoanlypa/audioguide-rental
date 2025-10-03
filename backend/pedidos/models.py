@@ -16,57 +16,47 @@ class CustomUser(AbstractUser):
         return f"{self.username} ({self.empresa})"
 
 class Empresa(models.Model):
-        nombre = models.CharField(max_length=100)
+    nombre = models.CharField(max_length=100)
 
-        def __str__(self):
+    def __str__(self):
             return self.nombre
         
 class Pedido(models.Model):
-        user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)    
-        empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='pedidos')
-        fecha_creacion = models.DateTimeField(auto_now_add=True)
-        excursion = models.CharField(max_length=150, blank=True)
-        fecha_inicio = models.DateField()
-        fecha_fin = models.DateField(blank=True, null=True)
-        ESTADOS = [
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)    
+    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='pedidos')
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+    excursion = models.CharField(max_length=150, blank=True)
+    fecha_inicio = models.DateField()
+    fecha_fin = models.DateField(blank=True, null=True)
+    ESTADOS = [
             ('pendiente_pago', 'Pendiente de pago'),
             ('pagado',        'Pagado'),
             ('aprobado',      'Aprobado'),
             ('entregado',     'Entregado'),
             ('recogido',      'Recogido'),
         ]
-        TIPO_CHOICES = [
+    TIPO_CHOICES = [
         ("mediodia",  "Medio día"),
         ("dia_Completo",  "Día completo"),
         ("circuito",  "Circuito"),
         ("crucero",   "Crucero"),     
     ]
 
-        tipo_servicio = models.CharField(max_length=15, choices=TIPO_CHOICES, default="mediodia")
-        estado = models.CharField(max_length=20, choices=ESTADOS, default='pendiente_pago')
-        lugar_entrega = models.CharField(max_length=150, blank=True)
-        lugar_recogida = models.CharField(max_length=150, blank=True)
-        notas = models.TextField(blank=True)
-        bono = models.CharField(max_length=100, blank=True)
-        emisores = models.PositiveIntegerField()
-        pax = models.PositiveIntegerField()
-        guia = models.CharField(max_length=150, blank=True)
-        updates = models.JSONField(default=list, blank=True, editable=False)
-        fecha_modificacion = models.DateTimeField(auto_now=True)
+    tipo_servicio = models.CharField(max_length=15, choices=TIPO_CHOICES, default="mediodia")
+    estado = models.CharField(max_length=20, choices=ESTADOS, default='pendiente_pago')
+    lugar_entrega = models.CharField(max_length=150, blank=True)
+    lugar_recogida = models.CharField(max_length=150, blank=True)
+    notas = models.TextField(blank=True)
+    bono = models.CharField(max_length=100, blank=True)
+    emisores = models.PositiveIntegerField()
+    pax = models.PositiveIntegerField()
+    guia = models.CharField(max_length=150, blank=True)
+    updates = models.JSONField(default=list, blank=True, editable=False)
+    fecha_modificacion = models.DateTimeField(auto_now=True)
 
-
-        
-        
-        def save(self, *args, **kwargs):
-            if self.pk:
-                self.updates.append(now().isoformat())
-            super().save(*args, **kwargs)
-
-           # --- helpers internos ---
-        def _log_update(self, event, user=None, note=None):
-            """Registrar un evento en 'updates'."""
+    def _log_update(self, event, user=None, note=None):
             entry = {
-                "ts": timezone.now().isoformat(),  # ISO 8601
+                "ts": timezone.now().isoformat(),
                 "event": str(event),
             }
             if user:
@@ -75,22 +65,19 @@ class Pedido(models.Model):
             if note:
                 entry["note"] = str(note)
             self.updates = (self.updates or []) + [entry]
-    
-        # --- helpers de estado ---
-        def set_delivered(self, user=None, note=None):
+
+    def set_delivered(self, user=None, note=None):
             self.estado = "entregado"
-            self.entregado = True
             self._log_update("delivered", user=user, note=note)
-            self.save(update_fields=["estado", "entregado", "updates", "fecha_modificacion"])
-    
-        def set_collected(self, user=None, note=None):
+            # no referenciar campos inexistentes ni fecha_modificacion si no estás seguro
+            self.save(update_fields=["estado", "updates"])
+
+    def set_collected(self, user=None, note=None):
             self.estado = "recogido"
-            self.recogido = True
             self._log_update("collected", user=user, note=note)
-            self.save(update_fields=["estado", "recogido", "updates", "fecha_modificacion"])
-    
-        # --- override save para inicializar 'updates' al crear ---
-        def save(self, *args, **kwargs):
+            self.save(update_fields=["estado", "updates"])
+
+    def save(self, *args, **kwargs):
             is_new = self.pk is None
             if is_new and not self.updates:
                 self.updates = [{"ts": timezone.now().isoformat(), "event": "created"}]
