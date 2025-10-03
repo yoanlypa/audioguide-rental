@@ -69,6 +69,13 @@ class PedidoSerializer(serializers.ModelSerializer):
         instance.servicios.all().delete()
 
 
+class DateOrDateTimeToDateField(serializers.DateField):
+    def to_internal_value(self, value):
+        if isinstance(value, str) and "T" in value:
+            value = value.split("T", 1)[0]  # nos quedamos con la parte de fecha
+        return super().to_internal_value(value)
+
+# ===== LECTURA (board) =====
 class PedidoOpsSerializer(serializers.ModelSerializer):
     empresa = serializers.SerializerMethodField()
     entregado = serializers.SerializerMethodField()
@@ -92,12 +99,10 @@ class PedidoOpsSerializer(serializers.ModelSerializer):
             "notas",
             "updates",
             "fecha_creacion",
-            # descomenta si existe en tu BD
-            # "fecha_modificacion",
+            "fecha_modificacion",
             "entregado",
             "recogido",
         )
-        # ¡OJO! ya NO marcamos todos como read_only; los calculados ya son read-only por ser MethodField
         read_only_fields = ("id", "updates", "fecha_creacion", "entregado", "recogido")
 
     def get_empresa(self, obj):
@@ -110,19 +115,24 @@ class PedidoOpsSerializer(serializers.ModelSerializer):
     def get_recogido(self, obj):
         return (getattr(obj, "estado", "") or "").lower() == "recogido"
 
-
-# ===== ESCRITURA (para crear/editar) =====
+# ===== ESCRITURA (crear/editar) =====
 class PedidoOpsWriteSerializer(serializers.ModelSerializer):
+    # Tratar fechas flexibles (date o datetime ISO)
+    fecha_inicio = DateOrDateTimeToDateField(required=True)
+    fecha_fin = DateOrDateTimeToDateField(required=False, allow_null=True)
+    # Evitar error de "choice inválido" aquí; dejamos que pase cualquier string
+    tipo_servicio = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+
     class Meta:
         model = Pedido
         fields = (
-            "empresa",          # FK: ID numérico
+            "empresa",          # FK por ID
             "excursion",
-            "estado",           # opcional; por defecto puedes poner "pagado"
+            "estado",
             "lugar_entrega",
             "lugar_recogida",
-            "fecha_inicio",     # REQUERIDO
-            "fecha_fin",        # opcional
+            "fecha_inicio",
+            "fecha_fin",
             "pax",
             "bono",
             "guia",
@@ -143,7 +153,7 @@ class PedidoOpsWriteSerializer(serializers.ModelSerializer):
         if ff and fi and ff < fi:
             raise serializers.ValidationError({"fecha_fin": "Debe ser >= fecha_inicio."})
         return attrs
-
+    
 class PedidoCruceroSerializer(serializers.ModelSerializer):
     class Meta:
         model  = PedidoCrucero
