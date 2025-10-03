@@ -1,18 +1,28 @@
-from django.urls import path, include
+# pedidos/api_urls.py
+from django.urls import path
 from rest_framework.routers import DefaultRouter
-from .views import PedidoViewSet, BulkPedidos, CruceroBulkView, PedidoOpsViewSet, me_view
 
+from .views import (
+    PedidoViewSet,
+    PedidoOpsViewSet,
+    MisPedidosView,
+    BulkPedidos,
+    CruceroBulkView,
+    me_view,
+)
+
+# Routers para ViewSets
 router = DefaultRouter()
-# ViewSet normal (si lo usas desde el frontend)
 router.register(r"pedidos", PedidoViewSet, basename="pedidos")
-# Panel de operaciones (trabajadores)
 router.register(r"ops/pedidos", PedidoOpsViewSet, basename="ops-pedidos")
 
+# URL patterns para APIViews y funciones
 urlpatterns = [
-    path('', include(router.urls)),
     path("mis-pedidos/", MisPedidosView.as_view(), name="mis_pedidos"),
     path("pedidos/bulk/", BulkPedidos.as_view(), name="pedidos_bulk"),
-    path("pedidos/cruceros/bulk/", CruceroBulkView.as_view()),
+    path("pedidos/cruceros/bulk/", CruceroBulkView.as_view(), name="cruceros_bulk"),
     path("me/", me_view, name="me"),
 ]
+
+# Importante: añadimos también las rutas del router
 urlpatterns += router.urls
