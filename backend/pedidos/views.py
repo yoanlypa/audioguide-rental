@@ -23,7 +23,7 @@ from .serializers import (
     PedidoSerializer,
     PedidoCruceroSerializer,
     EmailTokenObtainPairSerializer,
-    PedidoOpsSerializer,
+    PedidoOpsSerializer, PedidoOpsWriteSerializer,
 )
 
 
@@ -197,19 +197,15 @@ class IsAuthenticatedAndOwnerOrStaff(permissions.BasePermission):
 
 
 class PedidoOpsViewSet(viewsets.ModelViewSet):
-    """
-    /api/ops/pedidos/ → listado y acciones para trabajadores.
-    Staff: ve todos; no staff: solo los suyos (user=request.user).
-    Filtros (query params):
-      - status=pagado,entregado,recogido
-      - date_from=ISO
-      - date_to=ISO
-    """
-    serializer_class = PedidoOpsSerializer
     permission_classes = [IsAuthenticatedAndOwnerOrStaff]
 
+    def get_serializer_class(self):
+        if self.action in ("create", "update", "partial_update"):
+            return PedidoOpsWriteSerializer
+        return PedidoOpsSerializer
+
     def get_queryset(self):
-        qs = Pedido.objects.all().order_by("-fecha_modificacion")
+        qs = Pedido.objects.all().order_by("-fecha_inicio", "-id")
         user = self.request.user
         if not user.is_staff:
             qs = qs.filter(user=user)
@@ -221,13 +217,20 @@ class PedidoOpsViewSet(viewsets.ModelViewSet):
                 qs = qs.filter(estado__in=parts)
 
         date_from = _parse_dt(self.request.query_params.get("date_from"))
-        date_to = _parse_dt(self.request.query_params.get("date_to"))
+        date_to   = _parse_dt(self.request.query_params.get("date_to"))
         if date_from:
             qs = qs.filter(fecha_inicio__gte=date_from)
         if date_to:
             qs = qs.filter(fecha_inicio__lte=date_to)
-
         return qs
+
+    def perform_create(self, serializer):
+        # guarda el pedido ligado al usuario autenticado
+        # si quieres default de estado:
+        data = {**serializer.validated_data}
+        if not data.get("estado"):
+            data["estado"] = "pagado"
+        serializer.save(user=self.request.user, **data)
 
     @action(detail=True, methods=["post"])
     def delivered(self, request, pk=None):
@@ -240,8 +243,6 @@ class PedidoOpsViewSet(viewsets.ModelViewSet):
         obj = self.get_object()
         obj.set_collected(user=request.user)
         return Response({"ok": True, "status": "recogido", "id": obj.id})
-
-
 # ---------------------------------------------------------
 # Perfil simple para el frontend (/api/me/)
 # ---------------------------------------------------------

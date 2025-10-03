@@ -70,9 +70,7 @@ class PedidoSerializer(serializers.ModelSerializer):
 
 
 class PedidoOpsSerializer(serializers.ModelSerializer):
-    # mostramos la empresa como texto
     empresa = serializers.SerializerMethodField()
-    # flags DERIVADOS (no son campos reales en la BD)
     entregado = serializers.SerializerMethodField()
     recogido = serializers.SerializerMethodField()
 
@@ -94,26 +92,57 @@ class PedidoOpsSerializer(serializers.ModelSerializer):
             "notas",
             "updates",
             "fecha_creacion",
-            # OJO: si tu modelo YA tiene fecha_modificacion y está migrado, puedes descomentar:
+            # descomenta si existe en tu BD
             # "fecha_modificacion",
             "entregado",
             "recogido",
         )
-        read_only_fields = fields  # este serializer es solo lectura para el board
+        # ¡OJO! ya NO marcamos todos como read_only; los calculados ya son read-only por ser MethodField
+        read_only_fields = ("id", "updates", "fecha_creacion", "entregado", "recogido")
 
     def get_empresa(self, obj):
-        # si empresa es FK, str(obj.empresa) devuelve su __str__
         val = getattr(obj, "empresa", None)
         return str(val) if val is not None else ""
 
     def get_entregado(self, obj):
-        # derivado del estado
         return (getattr(obj, "estado", "") or "").lower() == "entregado"
 
     def get_recogido(self, obj):
-        # derivado del estado
         return (getattr(obj, "estado", "") or "").lower() == "recogido"
 
+
+# ===== ESCRITURA (para crear/editar) =====
+class PedidoOpsWriteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Pedido
+        fields = (
+            "empresa",          # FK: ID numérico
+            "excursion",
+            "estado",           # opcional; por defecto puedes poner "pagado"
+            "lugar_entrega",
+            "lugar_recogida",
+            "fecha_inicio",     # REQUERIDO
+            "fecha_fin",        # opcional
+            "pax",
+            "bono",
+            "guia",
+            "tipo_servicio",
+            "notas",
+        )
+        extra_kwargs = {
+            "empresa": {"required": True},
+            "fecha_inicio": {"required": True},
+            "fecha_fin": {"required": False, "allow_null": True},
+            "estado": {"required": False},
+            "pax": {"required": False},
+        }
+
+    def validate(self, attrs):
+        fi = attrs.get("fecha_inicio")
+        ff = attrs.get("fecha_fin")
+        if ff and fi and ff < fi:
+            raise serializers.ValidationError({"fecha_fin": "Debe ser >= fecha_inicio."})
+        return attrs
 
 class PedidoCruceroSerializer(serializers.ModelSerializer):
     class Meta:
