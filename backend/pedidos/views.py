@@ -1,22 +1,35 @@
 import logging
+import json
+import ast
+from datetime import date, datetime
+
 from django.shortcuts import render
-from rest_framework import viewsets, permissions, status, generics, filters
-from rest_framework import serializers
+from django.db import transaction
+from django.utils import timezone
+
+from rest_framework import viewsets, permissions, status, generics, filters, serializers
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from .models import Pedido, PedidoCrucero
-from .serializers import PedidoSerializer, PedidoCruceroSerializer
-from rest_framework_simplejwt.views import TokenObtainPairView
-from .serializers import EmailTokenObtainPairSerializer
 from rest_framework.views import APIView
-from rest_framework.response import Response
 from rest_framework.decorators import action, api_view, permission_classes
+
+from rest_framework_simplejwt.views import TokenObtainPairView
+
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
-from django.db import transaction
-from datetime import date, datetime
-import logging, json, ast
 
+from .models import Pedido, PedidoCrucero
+from .serializers import (
+    PedidoSerializer,
+    PedidoCruceroSerializer,
+    EmailTokenObtainPairSerializer,
+    PedidoOpsSerializer,
+)
+
+
+# ---------------------------------------------------------
+# Pedidos "normales"
+# ---------------------------------------------------------
 
 class PedidoViewSet(viewsets.ModelViewSet):
     queryset = Pedido.objects.all()
@@ -62,6 +75,9 @@ class BulkPedidos(APIView):
         return Response(ser.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+# ---------------------------------------------------------
+# Cruceros (bulk)
+# ---------------------------------------------------------
 
 class CruceroBulkView(APIView):
     permission_classes = [IsAuthenticated]
@@ -105,7 +121,6 @@ class CruceroBulkView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     # ---------- POST con reglas preliminary/final ----------
-    
     def post(self, request):
         ser = PedidoCruceroSerializer(data=request.data, many=True)
         ser.is_valid(raise_exception=True)
@@ -121,10 +136,9 @@ class CruceroBulkView(APIView):
 
         with transaction.atomic():
             for (service_date, ship), lote in groups.items():
-                new_status = lote[0]["status"].lower()           # case-insensitive
+                new_status = lote[0]["status"].lower()  # case-insensitive
 
-                qs = PedidoCrucero.objects.filter(service_date=service_date,
-                                                  ship=ship)
+                qs = PedidoCrucero.objects.filter(service_date=service_date, ship=ship)
 
                 # ¿Hay algún FINAL existente?
                 final_exists = qs.filter(status__iexact="final").exists()
@@ -132,9 +146,7 @@ class CruceroBulkView(APIView):
                 # ─── Regla de control ────────────────────────────
                 if new_status == "preliminary" and final_exists:
                     blocked += len(lote)
-                    blocked_groups.append(
-                        {"service_date": service_date, "ship": ship}
-                    )
+                    blocked_groups.append({"service_date": service_date, "ship": ship})
                     continue  # no tocamos nada
 
                 # Borramos todo lo previo (sea prelim o final)
@@ -142,31 +154,24 @@ class CruceroBulkView(APIView):
                 qs.delete()
 
                 # Insertamos todo el lote tal cual (permitimos signs duplicados)
-                PedidoCrucero.objects.bulk_create(
-                    [PedidoCrucero(**r) for r in lote]
-                )
+                PedidoCrucero.objects.bulk_create([PedidoCrucero(**r) for r in lote])
                 created += len(lote)
 
         return Response(
-            {
-                "created": created,
-                "overwritten": overwritten,
-                "blocked": blocked,
-                "blocked_groups": blocked_groups,
-            },
+            {"created": created, "overwritten": overwritten, "blocked": blocked, "blocked_groups": blocked_groups},
             status=status.HTTP_201_CREATED,
         )
 
+
 # feedback se guarda en una lista en request para que Middleware/Response
 def _add_feedback(self, ship, sd, status, n):
-    msg = (
-        f"♻️ Sobrescrito {ship} {sd} ({status}) "
-        f"con {n} excursiones nuevas"
-    )
+    msg = f"♻️ Sobrescrito {ship} {sd} ({status}) con {n} excursiones nuevas"
     getattr(self.request, "_feedback", []).append(msg)
 
 
-from .serializers import PedidoOpsSerializer
+# ---------------------------------------------------------
+# API de Operaciones (trabajadores)
+# ---------------------------------------------------------
 
 def _parse_dt(value: str):
     if not value:
@@ -179,18 +184,22 @@ def _parse_dt(value: str):
     except Exception:
         return None
 
+
 class IsAuthenticatedAndOwnerOrStaff(permissions.BasePermission):
     def has_permission(self, request, view):
         return bool(request.user and request.user.is_authenticated)
+
     def has_object_permission(self, request, view, obj):
         if request.user.is_staff:
             return True
-        return getattr(obj, "usuario_id", None) == request.user.id
+        # coherente con el resto del código: campo 'user'
+        return getattr(obj, "user_id", None) == request.user.id
+
 
 class PedidoOpsViewSet(viewsets.ModelViewSet):
     """
     /api/ops/pedidos/ → listado y acciones para trabajadores.
-    Staff: ve todos; no staff: solo los suyos (usuario=request.user).
+    Staff: ve todos; no staff: solo los suyos (user=request.user).
     Filtros (query params):
       - status=pagado,entregado,recogido
       - date_from=ISO
@@ -203,7 +212,7 @@ class PedidoOpsViewSet(viewsets.ModelViewSet):
         qs = Pedido.objects.all().order_by("-fecha_modificacion")
         user = self.request.user
         if not user.is_staff:
-            qs = qs.filter(usuario=user)
+            qs = qs.filter(user=user)
 
         status_param = self.request.query_params.get("status")
         if status_param:
@@ -212,7 +221,7 @@ class PedidoOpsViewSet(viewsets.ModelViewSet):
                 qs = qs.filter(estado__in=parts)
 
         date_from = _parse_dt(self.request.query_params.get("date_from"))
-        date_to   = _parse_dt(self.request.query_params.get("date_to"))
+        date_to = _parse_dt(self.request.query_params.get("date_to"))
         if date_from:
             qs = qs.filter(fecha_inicio__gte=date_from)
         if date_to:
@@ -232,13 +241,20 @@ class PedidoOpsViewSet(viewsets.ModelViewSet):
         obj.set_collected(user=request.user)
         return Response({"ok": True, "status": "recogido", "id": obj.id})
 
-    @api_view(["GET"])
-    @permission_classes([permissions.IsAuthenticated])
-    def me_view(request):
-        u = request.user
-        return Response({
+
+# ---------------------------------------------------------
+# Perfil simple para el frontend (/api/me/)
+# ---------------------------------------------------------
+
+@api_view(["GET"])
+@permission_classes([permissions.IsAuthenticated])
+def me_view(request):
+    u = request.user
+    return Response(
+        {
             "id": u.id,
             "username": getattr(u, "username", ""),
             "email": getattr(u, "email", ""),
             "is_staff": getattr(u, "is_staff", False),
-        })
+        }
+    )
