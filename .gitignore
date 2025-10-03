@@ -1,0 +1,17 @@
+# virtualenvs
+.venv/
+backend/.venv/
+# Python cache
+__pycache__/
+*.py[cod]
+# credenciales y binarios comunes
+*.env
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.sqlite3
