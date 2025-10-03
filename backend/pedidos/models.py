@@ -52,6 +52,8 @@ class Pedido(models.Model):
         pax = models.PositiveIntegerField()
         guia = models.CharField(max_length=150, blank=True)
         updates = models.JSONField(default=list, blank=True, editable=False)
+        fecha_modificacion = models.DateTimeField(auto_now=True)
+
 
         
         
