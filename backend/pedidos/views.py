@@ -205,24 +205,12 @@ class PedidoOpsViewSet(viewsets.ModelViewSet):
         return PedidoOpsSerializer
 
     def get_queryset(self):
-        qs = Pedido.objects.all().order_by("-fecha_inicio", "-id")
-        user = self.request.user
-        if not user.is_staff:
-            qs = qs.filter(user=user)
+        ts_param = self.request.query_params.get("tipo_servicio")
+        if ts_param:
+            ts_parts = [p.strip() for p in ts_param.split(",") if p.strip()]
+        if ts_parts:
+            qs = qs.filter(tipo_servicio__in=ts_parts)
 
-        status_param = self.request.query_params.get("status")
-        if status_param:
-            parts = [p.strip() for p in status_param.split(",") if p.strip()]
-            if parts:
-                qs = qs.filter(estado__in=parts)
-
-        date_from = _parse_dt(self.request.query_params.get("date_from"))
-        date_to   = _parse_dt(self.request.query_params.get("date_to"))
-        if date_from:
-            qs = qs.filter(fecha_inicio__gte=date_from)
-        if date_to:
-            qs = qs.filter(fecha_inicio__lte=date_to)
-        return qs
 
     def perform_create(self, serializer):
         # guarda el pedido ligado al usuario autenticado
