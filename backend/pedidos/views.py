@@ -124,26 +124,34 @@ class CruceroBulkView(APIView):
     def post(self, request):
         payload = request.data
 
-        # Normalizamos a 'rows' + 'meta' si viene el wrapper
+        # Normaliza a rows + meta (y NO inyecta valores nulos)
         if isinstance(payload, dict) and "rows" in payload:
             meta = payload.get("meta", {}) or {}
             rows = payload.get("rows", []) or []
-            # Inyectar meta común en cada fila para validar PedidoCrucero
-            common_keys = ("service_date", "ship", "status", "terminal",
-                           "supplier", "emergency_contact", "printing_date")
+
+            common_keys = (
+                "service_date", "ship", "status", "terminal",
+                "supplier", "emergency_contact"
+                # OJO: printing_date solo si viene con valor real
+            )
+
             full_rows = []
             for r in rows:
                 rr = dict(r)
                 for k in common_keys:
-                    if k in meta and k not in rr:
-                        rr[k] = meta[k]
+                    v = meta.get(k, None)
+                    if v not in (None, ""):
+                        rr[k] = v
+                # printing_date: solo añade si hay valor (evita null/empty)
+                if meta.get("printing_date"):
+                    rr["printing_date"] = meta["printing_date"]
                 full_rows.append(rr)
             rows = full_rows
         else:
             meta = {}
             rows = payload if isinstance(payload, list) else []
 
-        # Validación de cruceros
+        # Valida cruceros
         ser = PedidoCruceroSerializer(data=rows, many=True)
         ser.is_valid(raise_exception=True)
         rows_data = ser.validated_data
@@ -153,56 +161,59 @@ class CruceroBulkView(APIView):
         created_pedidos = 0
 
         # Agrupar por (fecha, barco)
-        groups: dict[tuple, list] = {}
+        groups = {}
         for r in rows_data:
             groups.setdefault((r["service_date"], r["ship"]), []).append(r)
 
+        from django.db import transaction
         with transaction.atomic():
             for (service_date, ship), lote in groups.items():
                 new_status = (lote[0]["status"] or "").lower()
                 qs = PedidoCrucero.objects.filter(service_date=service_date, ship=ship)
 
-                # ¿Hay FINAL existente?
                 final_exists = qs.filter(status__iexact="final").exists()
-
-                # Regla: si llega preliminary y ya hay final → bloquear
                 if new_status == "preliminary" and final_exists:
                     blocked += len(lote)
                     blocked_groups.append({"service_date": service_date, "ship": ship})
                     continue
 
-                # Borrado y reemplazo del grupo
                 overwritten += qs.count()
                 qs.delete()
 
-                # Inserción de cruceros (permitimos signs duplicados)
                 PedidoCrucero.objects.bulk_create([PedidoCrucero(**r) for r in lote])
                 created += len(lote)
 
-                # Si viene empresa en meta → crear también Pedidos (uno por excursión)
+                # Crear también Pedidos si meta.empresa está presente
                 empresa_id = meta.get("empresa")
                 if empresa_id:
-                    estado_pedido = meta.get("estado_pedido") or "pagado"
-                    lugar_entrega = meta.get("lugar_entrega") or (f"Terminal {lote[0].get('terminal','')}".strip())
+                    estado_pedido  = meta.get("estado_pedido") or "pagado"
+                    lugar_entrega  = meta.get("lugar_entrega") or (f"Terminal {lote[0].get('terminal','')}".strip())
                     lugar_recogida = meta.get("lugar_recogida") or ""
-                    emisores = meta.get("emisores") or ""
+                    emisores_raw   = meta.get("emisores", None)
+
+                    # emisores_id: solo si es número válido; si no, NO lo asignamos
+                    emisores_id = None
+                    try:
+                        if emisores_raw not in (None, "", "null"):
+                            emisores_id = int(emisores_raw)
+                    except (TypeError, ValueError):
+                        emisores_id = None
 
                     ped_objs = []
                     for r in lote:
-                        ped = Pedido(
+                        kwargs = dict(
                             empresa_id=empresa_id,
                             user=request.user,
                             excursion=r.get("excursion") or "",
                             estado=estado_pedido,
                             lugar_entrega=lugar_entrega or "",
                             lugar_recogida=lugar_recogida or "",
-                            fecha_inicio=service_date,   # DateField
+                            fecha_inicio=service_date,
                             fecha_fin=None,
                             pax=r.get("pax") or 0,
-                            bono=r.get("sign") or "",   # podemos usar 'sign' como bono/referencia
+                            bono=r.get("sign") or "",
                             guia="",
                             tipo_servicio="crucero",
-                            emisores=emisores,
                             notas="; ".join(
                                 x for x in [
                                     f"Barco: {ship}",
@@ -213,7 +224,11 @@ class CruceroBulkView(APIView):
                                 ] if x and not x.endswith(": ")
                             )
                         )
-                        ped_objs.append(ped)
+                        if emisores_id is not None:
+                            # si es FK, Django acepta foo_id
+                            kwargs["emisores_id"] = emisores_id
+                        ped_objs.append(Pedido(**kwargs))
+
                     if ped_objs:
                         Pedido.objects.bulk_create(ped_objs)
                         created_pedidos += len(ped_objs)
@@ -228,7 +243,6 @@ class CruceroBulkView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
-
 # feedback se guarda en una lista en request para que Middleware/Response
 def _add_feedback(self, ship, sd, status, n):
     msg = f"♻️ Sobrescrito {ship} {sd} ({status}) con {n} excursiones nuevas"
