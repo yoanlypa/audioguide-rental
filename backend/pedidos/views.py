@@ -122,46 +122,112 @@ class CruceroBulkView(APIView):
 
     # ---------- POST con reglas preliminary/final ----------
     def post(self, request):
-        ser = PedidoCruceroSerializer(data=request.data, many=True)
+        payload = request.data
+
+        # Normalizamos a 'rows' + 'meta' si viene el wrapper
+        if isinstance(payload, dict) and "rows" in payload:
+            meta = payload.get("meta", {}) or {}
+            rows = payload.get("rows", []) or []
+            # Inyectar meta común en cada fila para validar PedidoCrucero
+            common_keys = ("service_date", "ship", "status", "terminal",
+                           "supplier", "emergency_contact", "printing_date")
+            full_rows = []
+            for r in rows:
+                rr = dict(r)
+                for k in common_keys:
+                    if k in meta and k not in rr:
+                        rr[k] = meta[k]
+                full_rows.append(rr)
+            rows = full_rows
+        else:
+            meta = {}
+            rows = payload if isinstance(payload, list) else []
+
+        # Validación de cruceros
+        ser = PedidoCruceroSerializer(data=rows, many=True)
         ser.is_valid(raise_exception=True)
-        rows = ser.validated_data
+        rows_data = ser.validated_data
 
         created = overwritten = blocked = 0
         blocked_groups = []
+        created_pedidos = 0
 
-        # 🔑 Agrupar por barco-fecha (sign ignorado)
+        # Agrupar por (fecha, barco)
         groups: dict[tuple, list] = {}
-        for r in rows:
+        for r in rows_data:
             groups.setdefault((r["service_date"], r["ship"]), []).append(r)
 
         with transaction.atomic():
             for (service_date, ship), lote in groups.items():
-                new_status = lote[0]["status"].lower()  # case-insensitive
-
+                new_status = (lote[0]["status"] or "").lower()
                 qs = PedidoCrucero.objects.filter(service_date=service_date, ship=ship)
 
-                # ¿Hay algún FINAL existente?
+                # ¿Hay FINAL existente?
                 final_exists = qs.filter(status__iexact="final").exists()
 
-                # ─── Regla de control ────────────────────────────
+                # Regla: si llega preliminary y ya hay final → bloquear
                 if new_status == "preliminary" and final_exists:
                     blocked += len(lote)
                     blocked_groups.append({"service_date": service_date, "ship": ship})
-                    continue  # no tocamos nada
+                    continue
 
-                # Borramos todo lo previo (sea prelim o final)
+                # Borrado y reemplazo del grupo
                 overwritten += qs.count()
                 qs.delete()
 
-                # Insertamos todo el lote tal cual (permitimos signs duplicados)
+                # Inserción de cruceros (permitimos signs duplicados)
                 PedidoCrucero.objects.bulk_create([PedidoCrucero(**r) for r in lote])
                 created += len(lote)
 
+                # Si viene empresa en meta → crear también Pedidos (uno por excursión)
+                empresa_id = meta.get("empresa")
+                if empresa_id:
+                    estado_pedido = meta.get("estado_pedido") or "pagado"
+                    lugar_entrega = meta.get("lugar_entrega") or (f"Terminal {lote[0].get('terminal','')}".strip())
+                    lugar_recogida = meta.get("lugar_recogida") or ""
+                    emisores = meta.get("emisores") or ""
+
+                    ped_objs = []
+                    for r in lote:
+                        ped = Pedido(
+                            empresa_id=empresa_id,
+                            user=request.user,
+                            excursion=r.get("excursion") or "",
+                            estado=estado_pedido,
+                            lugar_entrega=lugar_entrega or "",
+                            lugar_recogida=lugar_recogida or "",
+                            fecha_inicio=service_date,   # DateField
+                            fecha_fin=None,
+                            pax=r.get("pax") or 0,
+                            bono=r.get("sign") or "",   # podemos usar 'sign' como bono/referencia
+                            guia="",
+                            tipo_servicio="crucero",
+                            emisores=emisores,
+                            notas="; ".join(
+                                x for x in [
+                                    f"Barco: {ship}",
+                                    f"Idioma: {r.get('language') or ''}",
+                                    f"Hora: {r.get('arrival_time') or ''}",
+                                    f"Proveedor: {lote[0].get('supplier') or ''}",
+                                    f"Terminal: {lote[0].get('terminal') or ''}",
+                                ] if x and not x.endswith(": ")
+                            )
+                        )
+                        ped_objs.append(ped)
+                    if ped_objs:
+                        Pedido.objects.bulk_create(ped_objs)
+                        created_pedidos += len(ped_objs)
+
         return Response(
-            {"created": created, "overwritten": overwritten, "blocked": blocked, "blocked_groups": blocked_groups},
+            {
+                "created": created,
+                "overwritten": overwritten,
+                "blocked": blocked,
+                "blocked_groups": blocked_groups,
+                "created_pedidos": created_pedidos,
+            },
             status=status.HTTP_201_CREATED,
         )
-
 
 # feedback se guarda en una lista en request para que Middleware/Response
 def _add_feedback(self, ship, sd, status, n):
