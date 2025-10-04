@@ -18,7 +18,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
-from .models import Pedido, PedidoCrucero
+from .models import Pedido, PedidoCrucero, Empresa
 from .serializers import (
     PedidoSerializer,
     PedidoCruceroSerializer,
@@ -184,53 +184,65 @@ class CruceroBulkView(APIView):
                 created += len(lote)
 
                 # Crear Pedidos (solo si se pasa empresa)
-                empresa_id = meta.get("empresa")
-                if empresa_id:
-                    estado_pedido = meta.get("estado_pedido") or "pagado"
+                # Crear Pedidos (solo si se pasa empresa)
+            empresa_raw = meta.get("empresa")
+            if empresa_raw is not None:
+                # Validación estricta: numérico y existente
+                try:
+                    empresa_id = int(empresa_raw)
+                except (TypeError, ValueError):
+                    return Response(
+                        {"meta": {"empresa": ["Debe ser un ID numérico de Empresa existente."]}},
+                        status=400,
+                    )
 
-                    # Para crucero NO pedimos lugares específicos; usamos Terminal como entrega
-                    terminal_val = (lote[0].get("terminal") or "").strip()
-                    lugar_entrega = f"Terminal {terminal_val}".strip() if terminal_val else "Terminal"
-                    lugar_recogida = ""  # vacío a propósito
+                if not Empresa.objects.filter(id=empresa_id).exists():
+                    return Response(
+                        {"meta": {"empresa": [f"No existe Empresa con id={empresa_id}."]}},
+                        status=400,
+                    )
 
-                    # emisores: el modelo lo tiene NOT NULL → usar número válido o fallback 0
-                    emisores_raw = meta.get("emisores", None)
-                    try:
-                        emisores_val = int(emisores_raw) if emisores_raw not in (None, "", "null") else 0
-                    except (TypeError, ValueError):
-                        emisores_val = 0
+                estado_pedido = meta.get("estado_pedido") or "pagado"
 
-                    ped_objs = []
-                    for r in lote:
-                        ped = Pedido(
-                            empresa_id=empresa_id,
-                            user=request.user,
-                            excursion=r.get("excursion") or "",
-                            estado=estado_pedido,
-                            lugar_entrega=lugar_entrega,
-                            lugar_recogida=lugar_recogida,
-                            fecha_inicio=service_date,   # DateField
-                            fecha_fin=None,
-                            pax=r.get("pax") or 0,
-                            bono=r.get("sign") or "",
-                            guia="",
-                            tipo_servicio="crucero",
-                            emisores=emisores_val,       # <- numérico, nunca null
-                            notas="; ".join(
-                                x for x in [
-                                    f"Barco: {ship}",
-                                    f"Idioma: {r.get('language') or ''}",
-                                    f"Hora: {r.get('arrival_time') or ''}",
-                                    f"Proveedor: {lote[0].get('supplier') or ''}",
-                                    f"Terminal: {terminal_val}",
-                                ] if x and not x.endswith(": ")
-                            )
-                        )
-                        ped_objs.append(ped)
+                # Para crucero: usamos Terminal como lugar de entrega
+                terminal_val = (lote[0].get("terminal") or "").strip()
+                lugar_entrega = f"Terminal {terminal_val}".strip() if terminal_val else "Terminal"
+                lugar_recogida = ""  # vacío a propósito
 
-                    if ped_objs:
-                        Pedido.objects.bulk_create(ped_objs)
-                        created_pedidos += len(ped_objs)
+                # emisores: si tu modelo lo tiene NOT NULL y aquí no lo usamos, fuerza 0
+                emisores_val = 0
+
+                ped_objs = []
+                for r in lote:
+                    ped = Pedido(
+                        empresa_id=empresa_id,
+                        user=request.user,
+                        excursion=r.get("excursion") or "",
+                        estado=estado_pedido,
+                        lugar_entrega=lugar_entrega,
+                        lugar_recogida=lugar_recogida,
+                        fecha_inicio=service_date,   # DateField
+                        fecha_fin=None,
+                        pax=r.get("pax") or 0,
+                        bono=r.get("sign") or "",
+                        guia="",
+                        tipo_servicio="crucero",
+                        emisores=emisores_val,       # nunca null
+                        notas="; ".join(
+                            x for x in [
+                                f"Barco: {ship}",
+                                f"Idioma: {r.get('language') or ''}",
+                                f"Hora: {r.get('arrival_time') or ''}",
+                                f"Proveedor: {lote[0].get('supplier') or ''}",
+                                f"Terminal: {terminal_val}",
+                            ] if x and not x.endswith(": ")
+                        ),
+                    )
+                    ped_objs.append(ped)
+
+                if ped_objs:
+                    Pedido.objects.bulk_create(ped_objs)
+                    created_pedidos += len(ped_objs)
 
         return Response(
             {
