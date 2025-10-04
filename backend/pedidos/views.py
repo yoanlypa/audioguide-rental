@@ -124,7 +124,7 @@ class CruceroBulkView(APIView):
     def post(self, request):
         payload = request.data
 
-        # Normaliza a rows + meta (y NO inyecta valores nulos)
+        # Normaliza a rows + meta sin inyectar valores nulos
         if isinstance(payload, dict) and "rows" in payload:
             meta = payload.get("meta", {}) or {}
             rows = payload.get("rows", []) or []
@@ -132,7 +132,6 @@ class CruceroBulkView(APIView):
             common_keys = (
                 "service_date", "ship", "status", "terminal",
                 "supplier", "emergency_contact"
-                # OJO: printing_date solo si viene con valor real
             )
 
             full_rows = []
@@ -142,7 +141,7 @@ class CruceroBulkView(APIView):
                     v = meta.get(k, None)
                     if v not in (None, ""):
                         rr[k] = v
-                # printing_date: solo añade si hay valor (evita null/empty)
+                # printing_date: solo si hay valor (evita null/empty)
                 if meta.get("printing_date"):
                     rr["printing_date"] = meta["printing_date"]
                 full_rows.append(rr)
@@ -171,6 +170,7 @@ class CruceroBulkView(APIView):
                 new_status = (lote[0]["status"] or "").lower()
                 qs = PedidoCrucero.objects.filter(service_date=service_date, ship=ship)
 
+                # Bloqueo preliminary si ya hay final
                 final_exists = qs.filter(status__iexact="final").exists()
                 if new_status == "preliminary" and final_exists:
                     blocked += len(lote)
@@ -183,51 +183,50 @@ class CruceroBulkView(APIView):
                 PedidoCrucero.objects.bulk_create([PedidoCrucero(**r) for r in lote])
                 created += len(lote)
 
-                # Crear también Pedidos si meta.empresa está presente
+                # Crear Pedidos (solo si se pasa empresa)
                 empresa_id = meta.get("empresa")
                 if empresa_id:
-                    estado_pedido  = meta.get("estado_pedido") or "pagado"
-                    lugar_entrega  = meta.get("lugar_entrega") or (f"Terminal {lote[0].get('terminal','')}".strip())
-                    lugar_recogida = meta.get("lugar_recogida") or ""
-                    emisores_raw   = meta.get("emisores", None)
+                    estado_pedido = meta.get("estado_pedido") or "pagado"
 
-                    # emisores_id: solo si es número válido; si no, NO lo asignamos
-                    emisores_id = None
+                    # Para crucero NO pedimos lugares específicos; usamos Terminal como entrega
+                    terminal_val = (lote[0].get("terminal") or "").strip()
+                    lugar_entrega = f"Terminal {terminal_val}".strip() if terminal_val else "Terminal"
+                    lugar_recogida = ""  # vacío a propósito
+
+                    # emisores: el modelo lo tiene NOT NULL → usar número válido o fallback 0
+                    emisores_raw = meta.get("emisores", None)
                     try:
-                        if emisores_raw not in (None, "", "null"):
-                            emisores_id = int(emisores_raw)
+                        emisores_val = int(emisores_raw) if emisores_raw not in (None, "", "null") else 0
                     except (TypeError, ValueError):
-                        emisores_id = None
+                        emisores_val = 0
 
                     ped_objs = []
                     for r in lote:
-                        kwargs = dict(
+                        ped = Pedido(
                             empresa_id=empresa_id,
                             user=request.user,
                             excursion=r.get("excursion") or "",
                             estado=estado_pedido,
-                            lugar_entrega=lugar_entrega or "",
-                            lugar_recogida=lugar_recogida or "",
-                            fecha_inicio=service_date,
+                            lugar_entrega=lugar_entrega,
+                            lugar_recogida=lugar_recogida,
+                            fecha_inicio=service_date,   # DateField
                             fecha_fin=None,
                             pax=r.get("pax") or 0,
                             bono=r.get("sign") or "",
                             guia="",
                             tipo_servicio="crucero",
+                            emisores=emisores_val,       # <- numérico, nunca null
                             notas="; ".join(
                                 x for x in [
                                     f"Barco: {ship}",
                                     f"Idioma: {r.get('language') or ''}",
                                     f"Hora: {r.get('arrival_time') or ''}",
                                     f"Proveedor: {lote[0].get('supplier') or ''}",
-                                    f"Terminal: {lote[0].get('terminal') or ''}",
+                                    f"Terminal: {terminal_val}",
                                 ] if x and not x.endswith(": ")
                             )
                         )
-                        if emisores_id is not None:
-                            # si es FK, Django acepta foo_id
-                            kwargs["emisores_id"] = emisores_id
-                        ped_objs.append(Pedido(**kwargs))
+                        ped_objs.append(ped)
 
                     if ped_objs:
                         Pedido.objects.bulk_create(ped_objs)
