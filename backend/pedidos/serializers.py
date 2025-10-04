@@ -5,7 +5,8 @@ from django.contrib.auth import authenticate, get_user_model
 from rest_framework import exceptions
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework import serializers
-from .models import PedidoCrucero
+from .models import PedidoCrucero, Empresa
+from django.contrib.auth import get_user_model
 
 User = get_user_model()
 
@@ -205,3 +206,7 @@ class PedidoCruceroSerializer(serializers.ModelSerializer):
                 "service_date y ship son obligatorios."
             )
         return attrs
+class EmpresaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Empresa
+        fields = ["id", "nombre"]
