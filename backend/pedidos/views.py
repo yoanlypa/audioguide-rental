@@ -263,60 +263,48 @@ class IsAuthenticatedAndOwnerOrStaff(permissions.BasePermission):
 
 
 class PedidoOpsViewSet(viewsets.ModelViewSet):
+    serializer_class = PedidoOpsSerializer
     permission_classes = [IsAuthenticatedAndOwnerOrStaff]
 
-def get_serializer_class(self):
-    if self.action in ("create", "update", "partial_update"):
-        return PedidoOpsWriteSerializer
-    return PedidoOpsSerializer
+    # DRF exige queryset o get_queryset. Dejamos ambos:
+    queryset = Pedido.objects.all().order_by("-fecha_inicio", "-id")
 
-def get_queryset(self):
-    # Ordena por fecha e id (más reciente primero)
-    qs = Pedido.objects.all().order_by("-fecha_inicio", "-id")
+    def get_queryset(self):
+        qs = super().get_queryset()
 
-    # Si no es staff, solo ve sus pedidos
-    user = self.request.user
-    if not user.is_staff:
-        qs = qs.filter(user=user)
+        # Si no es staff, solo sus pedidos
+        user = self.request.user
+        if not user.is_staff:
+            qs = qs.filter(user=user)
 
-    # Filtro por estado (coma-separado)
-    status_param = self.request.query_params.get("status")
-    if status_param:
-        parts = [p.strip() for p in status_param.split(",") if p.strip()]
-        if parts:
-            qs = qs.filter(estado__in=parts)
+        # Filtro por estado (coma-separado)
+        status_param = self.request.query_params.get("status")
+        if status_param:
+            parts = [p.strip() for p in status_param.split(",") if p.strip()]
+            if parts:
+                qs = qs.filter(estado__in=parts)
 
-    # Filtro por tipo_servicio (coma-separado) — ¡sin usar ts_parts fuera del if!
-    ts_param = self.request.query_params.get("tipo_servicio")
-    if ts_param:
-        ts_parts = [p.strip() for p in ts_param.split(",") if p.strip()]
-        if ts_parts:
-            qs = qs.filter(tipo_servicio__in=ts_parts)
+        # Filtro por tipo_servicio (coma-separado)
+        ts_param = self.request.query_params.get("tipo_servicio")
+        if ts_param:
+            ts_parts = [p.strip() for p in ts_param.split(",") if p.strip()]
+            if ts_parts:
+                qs = qs.filter(tipo_servicio__in=ts_parts)
 
-    # Rango de fechas (acepta ISO con Z o sin ella)
-    date_from = _parse_dt(self.request.query_params.get("date_from"))
-    date_to   = _parse_dt(self.request.query_params.get("date_to"))
+        # Rango de fechas (acepta ISO con Z)
+        date_from = _parse_dt(self.request.query_params.get("date_from"))
+        date_to   = _parse_dt(self.request.query_params.get("date_to"))
 
-    # Si tu campo es DateField, convertir datetime → date evita warnings
-    from datetime import datetime
-    if date_from:
-        if isinstance(date_from, datetime):
-            date_from = date_from.date()
-        qs = qs.filter(fecha_inicio__gte=date_from)
-    if date_to:
-        if isinstance(date_to, datetime):
-            date_to = date_to.date()
-        qs = qs.filter(fecha_inicio__lte=date_to)
+        if date_from:
+            if isinstance(date_from, datetime):
+                date_from = date_from.date()
+            qs = qs.filter(fecha_inicio__gte=date_from)
+        if date_to:
+            if isinstance(date_to, datetime):
+                date_to = date_to.date()
+            qs = qs.filter(fecha_inicio__lte=date_to)
 
-    return qs
-
-    def perform_create(self, serializer):
-        # guarda el pedido ligado al usuario autenticado
-        # si quieres default de estado:
-        data = {**serializer.validated_data}
-        if not data.get("estado"):
-            data["estado"] = "pagado"
-        serializer.save(user=self.request.user, **data)
+        return qs
 
     @action(detail=True, methods=["post"])
     def delivered(self, request, pk=None):
