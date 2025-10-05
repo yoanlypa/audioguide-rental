@@ -162,6 +162,7 @@ class PedidoOpsWriteSerializer(serializers.ModelSerializer):
         return attrs
     
 class PedidoCruceroSerializer(serializers.ModelSerializer):
+    printing_date = serializers.DateTimeField(read_only=True)
     class Meta:
         model  = PedidoCrucero
         fields = "__all__"

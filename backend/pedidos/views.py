@@ -125,17 +125,14 @@ class CruceroBulkView(APIView):
     def post(self, request):
         payload = request.data
 
-        # Marcamos la fecha de impresión del LOTE (una sola vez por request)
-        # Si tu campo printing_date es DateField → usamos localdate().
-        # Si fuera DateTimeField, usa timezone.now().
-        printing_date_value = timezone.localdate()
+        # Fecha y hora exacta de "impresión" (creación del lote)
+        printing_dt = timezone.now()
 
         # Normalizamos a rows + meta y FORZAMOS printing_date por detrás
         if isinstance(payload, dict) and "rows" in payload:
             meta = payload.get("meta", {}) or {}
             rows = payload.get("rows", []) or []
 
-            # claves comunes que SÍ podemos heredar si vienen con valor
             common_keys = (
                 "service_date", "ship", "status", "terminal",
                 "supplier", "emergency_contact"
@@ -148,17 +145,16 @@ class CruceroBulkView(APIView):
                     v = meta.get(k, None)
                     if v not in (None, ""):
                         rr[k] = v
-                # ⚠️ SIEMPRE poner printing_date automáticamente (no aceptar lo que venga del cliente)
-                rr["printing_date"] = printing_date_value
+                # siempre imponemos printing_date en servidor
+                rr["printing_date"] = printing_dt
                 full_rows.append(rr)
             rows = full_rows
         else:
             meta = {}
             rows = payload if isinstance(payload, list) else []
-            # Fuerza printing_date en cada fila
-            rows = [{**r, "printing_date": printing_date_value} for r in rows]
+            rows = [{**r, "printing_date": printing_dt} for r in rows]
 
-        # Validación de cruceros
+        # Valida cruceros
         ser = PedidoCruceroSerializer(data=rows, many=True)
         ser.is_valid(raise_exception=True)
         rows_data = ser.validated_data
@@ -197,7 +193,6 @@ class CruceroBulkView(APIView):
                     lugar_recogida = meta.get("lugar_recogida") or ""
                     emisores_raw   = meta.get("emisores", None)
 
-                    # emisores → solo si es número; si no, no lo asignamos
                     emisores_id = None
                     try:
                         if emisores_raw not in (None, "", "null"):
@@ -227,12 +222,13 @@ class CruceroBulkView(APIView):
                                     f"Hora: {r.get('arrival_time') or ''}",
                                     f"Proveedor: {lote[0].get('supplier') or ''}",
                                     f"Terminal: {lote[0].get('terminal') or ''}",
-                                    f"Impresión: {printing_date_value}",
+                                    f"Impresión: {printing_dt.isoformat(timespec='minutes')}",
                                 ] if x and not x.endswith(": ")
                             )
                         )
                         if emisores_id is not None:
                             kwargs["emisores_id"] = emisores_id
+
                         ped_objs.append(Pedido(**kwargs))
 
                     if ped_objs:
@@ -249,7 +245,6 @@ class CruceroBulkView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
-
 # feedback se guarda en request para que Middleware/Response lo lea
 def _add_feedback(request, ship, sd, status, n):
     msg = f"♻️ Sobrescrito {ship} {sd} ({status}) con {n} excursiones nuevas"

@@ -84,7 +84,7 @@ class Pedido(models.Model):
             super().save(*args, **kwargs)
 
 class PedidoCrucero(models.Model):
-    printing_date      = models.DateField()
+    printing_date = models.DateTimeField(default=timezone.now)     
     supplier           = models.CharField(max_length=200)
     emergency_contact  = models.CharField(max_length=100, blank=True)
     service_date       = models.DateField()
