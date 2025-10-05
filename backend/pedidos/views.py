@@ -125,11 +125,17 @@ class CruceroBulkView(APIView):
     def post(self, request):
         payload = request.data
 
-        # Normaliza a rows + meta sin inyectar valores nulos
+        # Marcamos la fecha de impresión del LOTE (una sola vez por request)
+        # Si tu campo printing_date es DateField → usamos localdate().
+        # Si fuera DateTimeField, usa timezone.now().
+        printing_date_value = timezone.localdate()
+
+        # Normalizamos a rows + meta y FORZAMOS printing_date por detrás
         if isinstance(payload, dict) and "rows" in payload:
             meta = payload.get("meta", {}) or {}
             rows = payload.get("rows", []) or []
 
+            # claves comunes que SÍ podemos heredar si vienen con valor
             common_keys = (
                 "service_date", "ship", "status", "terminal",
                 "supplier", "emergency_contact"
@@ -142,16 +148,17 @@ class CruceroBulkView(APIView):
                     v = meta.get(k, None)
                     if v not in (None, ""):
                         rr[k] = v
-                # printing_date: solo si hay valor (evita null/empty)
-                if meta.get("printing_date"):
-                    rr["printing_date"] = meta["printing_date"]
+                # ⚠️ SIEMPRE poner printing_date automáticamente (no aceptar lo que venga del cliente)
+                rr["printing_date"] = printing_date_value
                 full_rows.append(rr)
             rows = full_rows
         else:
             meta = {}
             rows = payload if isinstance(payload, list) else []
+            # Fuerza printing_date en cada fila
+            rows = [{**r, "printing_date": printing_date_value} for r in rows]
 
-        # Valida cruceros
+        # Validación de cruceros
         ser = PedidoCruceroSerializer(data=rows, many=True)
         ser.is_valid(raise_exception=True)
         rows_data = ser.validated_data
@@ -159,23 +166,6 @@ class CruceroBulkView(APIView):
         created = overwritten = blocked = 0
         blocked_groups = []
         created_pedidos = 0
-
-        # Validación previa de empresa (si viene) para evitar FK roto
-        empresa_id_valid = None
-        empresa_raw = meta.get("empresa", None)
-        if empresa_raw is not None:
-            try:
-                empresa_id_valid = int(empresa_raw)
-            except (TypeError, ValueError):
-                return Response(
-                    {"meta": {"empresa": ["Debe ser un ID numérico de Empresa existente."]}},
-                    status=400,
-                )
-            if not Empresa.objects.filter(id=empresa_id_valid).exists():
-                return Response(
-                    {"meta": {"empresa": [f"No existe Empresa con id={empresa_id_valid}."]}},
-                    status=400,
-                )
 
         # Agrupar por (fecha, barco)
         groups = {}
@@ -187,7 +177,6 @@ class CruceroBulkView(APIView):
                 new_status = (lote[0]["status"] or "").lower()
                 qs = PedidoCrucero.objects.filter(service_date=service_date, ship=ship)
 
-                # Bloqueo preliminary si ya hay final
                 final_exists = qs.filter(status__iexact="final").exists()
                 if new_status == "preliminary" and final_exists:
                     blocked += len(lote)
@@ -200,45 +189,51 @@ class CruceroBulkView(APIView):
                 PedidoCrucero.objects.bulk_create([PedidoCrucero(**r) for r in lote])
                 created += len(lote)
 
-                # Crear Pedidos (solo si se pasó empresa válida)
-                if empresa_id_valid is not None:
-                    estado_pedido = meta.get("estado_pedido") or "pagado"
+                # Crear también Pedidos si meta.empresa está presente (IDs numéricos)
+                empresa_id = meta.get("empresa")
+                if empresa_id:
+                    estado_pedido  = meta.get("estado_pedido") or "pagado"
+                    lugar_entrega  = meta.get("lugar_entrega") or (f"Terminal {lote[0].get('terminal','')}".strip())
+                    lugar_recogida = meta.get("lugar_recogida") or ""
+                    emisores_raw   = meta.get("emisores", None)
 
-                    # Para crucero: usamos Terminal como lugar de entrega
-                    terminal_val = (lote[0].get("terminal") or "").strip()
-                    lugar_entrega = f"Terminal {terminal_val}".strip() if terminal_val else "Terminal"
-                    lugar_recogida = ""  # vacío a propósito
-
-                    # emisores: si el modelo es NOT NULL y aquí no lo usamos, fuerza 0
-                    emisores_val = 0
+                    # emisores → solo si es número; si no, no lo asignamos
+                    emisores_id = None
+                    try:
+                        if emisores_raw not in (None, "", "null"):
+                            emisores_id = int(emisores_raw)
+                    except (TypeError, ValueError):
+                        emisores_id = None
 
                     ped_objs = []
                     for r in lote:
-                        ped = Pedido(
-                            empresa_id=empresa_id_valid,
+                        kwargs = dict(
+                            empresa_id=empresa_id,
                             user=request.user,
                             excursion=r.get("excursion") or "",
                             estado=estado_pedido,
-                            lugar_entrega=lugar_entrega,
-                            lugar_recogida=lugar_recogida,
-                            fecha_inicio=service_date,   # DateField
+                            lugar_entrega=lugar_entrega or "",
+                            lugar_recogida=lugar_recogida or "",
+                            fecha_inicio=service_date,
                             fecha_fin=None,
                             pax=r.get("pax") or 0,
                             bono=r.get("sign") or "",
-                            guia="",                     # si usas nombres de guías, ajusta aquí
+                            guia="",
                             tipo_servicio="crucero",
-                            emisores=emisores_val,       # nunca null
                             notas="; ".join(
                                 x for x in [
                                     f"Barco: {ship}",
                                     f"Idioma: {r.get('language') or ''}",
                                     f"Hora: {r.get('arrival_time') or ''}",
                                     f"Proveedor: {lote[0].get('supplier') or ''}",
-                                    f"Terminal: {terminal_val}",
+                                    f"Terminal: {lote[0].get('terminal') or ''}",
+                                    f"Impresión: {printing_date_value}",
                                 ] if x and not x.endswith(": ")
-                            ),
+                            )
                         )
-                        ped_objs.append(ped)
+                        if emisores_id is not None:
+                            kwargs["emisores_id"] = emisores_id
+                        ped_objs.append(Pedido(**kwargs))
 
                     if ped_objs:
                         Pedido.objects.bulk_create(ped_objs)
@@ -254,7 +249,6 @@ class CruceroBulkView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
-
 
 # feedback se guarda en request para que Middleware/Response lo lea
 def _add_feedback(request, ship, sd, status, n):
