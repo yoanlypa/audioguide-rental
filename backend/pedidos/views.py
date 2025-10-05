@@ -28,6 +28,26 @@ from .serializers import (
     EmpresaSerializer,
 )
 
+
+class EmpresaViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    GET /api/empresas/ (staff: todas | no-staff: solo la suya)
+    GET /api/empresas/{id}/
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    queryset = Empresa.objects.all()
+
+    def get_queryset(self):
+        qs = super().get_queryset().order_by("nombre")
+        u = self.request.user
+        if u.is_staff:
+            return qs
+        # filtra por el nombre que tenga el usuario en CustomUser.empresa
+        nombre = (getattr(u, "empresa", "") or "").strip()
+        if not nombre:
+            return qs.none()
+        return qs.filter(nombre=nombre)
+
 # ---------------------------------------------------------
 # Pedidos "normales"
 # ---------------------------------------------------------
@@ -331,16 +351,24 @@ class PedidoOpsViewSet(viewsets.ModelViewSet):
 # ---------------------------------------------------------
 # Perfil simple para el frontend (/api/me/)
 # ---------------------------------------------------------
-
 @api_view(["GET"])
 @permission_classes([permissions.IsAuthenticated])
 def me_view(request):
+    """
+    Devuelve info del usuario + empresa_id resuelta (si existe).
+    """
     u = request.user
-    return Response(
-        {
-            "id": u.id,
-            "username": getattr(u, "username", ""),
-            "email": getattr(u, "email", ""),
-            "is_staff": getattr(u, "is_staff", False),
-        }
-    )
+    empresa_name = (getattr(u, "empresa", "") or "").strip()
+    empresa_id = None
+    if empresa_name:
+        from .models import Empresa
+        empresa_id = Empresa.objects.filter(nombre=empresa_name).values_list("id", flat=True).first()
+
+    return Response({
+        "id": u.id,
+        "username": getattr(u, "username", ""),
+        "email": getattr(u, "email", ""),
+        "is_staff": getattr(u, "is_staff", False),
+        "empresa_name": empresa_name,
+        "empresa_id": empresa_id,
+    })

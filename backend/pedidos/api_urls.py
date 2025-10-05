@@ -8,6 +8,7 @@ from .views import (
     MisPedidosView,
     BulkPedidos,
     CruceroBulkView,
+    EmpresaViewSet,
     me_view,
 )
 
@@ -15,6 +16,8 @@ from .views import (
 router = DefaultRouter()
 router.register(r"pedidos", PedidoViewSet, basename="pedidos")
 router.register(r"ops/pedidos", PedidoOpsViewSet, basename="ops-pedidos")
+router.register(r"empresas", EmpresaViewSet, basename="empresas")
+
 
 # URL patterns para APIViews y funciones
 urlpatterns = [

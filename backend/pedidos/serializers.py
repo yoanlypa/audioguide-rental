@@ -77,47 +77,67 @@ class DateOrDateTimeToDateField(serializers.DateField):
         return super().to_internal_value(value)
 
 # ===== LECTURA (board) =====
+
 class PedidoOpsSerializer(serializers.ModelSerializer):
-    empresa = serializers.SerializerMethodField()
-    entregado = serializers.SerializerMethodField()
-    recogido = serializers.SerializerMethodField()
+    # Empresa puede no venir si el usuario NO es staff (la inyectamos desde su perfil)
+    empresa = serializers.PrimaryKeyRelatedField(
+        queryset=Empresa.objects.all(),
+        required=False,
+        allow_null=True
+    )
+    # El user no viaja en el payload: se autoinyecta
+    user = serializers.HiddenField(default=serializers.CurrentUserDefault())
 
     class Meta:
         model = Pedido
-        fields = (
+        fields = [
             "id",
+            "user",
             "empresa",
             "excursion",
+            "fecha_inicio",
+            "fecha_fin",
+            "tipo_servicio",
             "estado",
             "lugar_entrega",
             "lugar_recogida",
-            "fecha_inicio",
-            "fecha_fin",
-            "pax",
-            "bono",
-            "guia",
-            "tipo_servicio",
-            "emisores",          # <-- NUEVO
             "notas",
-            "updates",
-            "fecha_creacion",
-            # "fecha_modificacion",
-            "entregado",
-            "recogido",
-        )
-        read_only_fields = ("id", "updates", "fecha_creacion", "entregado", "recogido")
+            "bono",
+            "emisores",
+            "pax",
+            "guia",
+        ]
+        read_only_fields = ["id"]
 
-    def get_empresa(self, obj):
-        val = getattr(obj, "empresa", None)
-        return str(val) if val is not None else ""
+    def validate(self, attrs):
+        """
+        - Si es staff: 'empresa' es obligatoria (ID válido).
+        - Si NO es staff: resolvemos Empresa a partir de user.empresa (string)
+          y la inyectamos en attrs["empresa"].
+        """
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
 
-    def get_entregado(self, obj):
-        return (getattr(obj, "estado", "") or "").lower() == "entregado"
+        if not user or not user.is_authenticated:
+            raise serializers.ValidationError({"detail": "No autenticado."})
 
-    def get_recogido(self, obj):
-        return (getattr(obj, "estado", "") or "").lower() == "recogido"
+        if user.is_staff:
+            if not attrs.get("empresa"):
+                raise serializers.ValidationError({"empresa": "Este campo es obligatorio para staff."})
+            return attrs
 
+        # No-staff: resolvemos por nombre (CustomUser.empresa es CharField)
+        nombre = (getattr(user, "empresa", "") or "").strip()
+        if not nombre:
+            raise serializers.ValidationError({"empresa": "Tu usuario no tiene empresa asignada."})
 
+        try:
+            empresa_obj = Empresa.objects.get(nombre=nombre)
+        except Empresa.DoesNotExist:
+            raise serializers.ValidationError({"empresa": f"No existe Empresa con nombre '{nombre}' asociada a tu usuario."})
+
+        attrs["empresa"] = empresa_obj
+        return attrs
 # --- ESCRITURA ---
 class PedidoOpsWriteSerializer(serializers.ModelSerializer):
     # fechas flexibles ya como lo tenías
