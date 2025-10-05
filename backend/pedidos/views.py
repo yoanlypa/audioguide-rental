@@ -125,10 +125,10 @@ class CruceroBulkView(APIView):
     def post(self, request):
         payload = request.data
 
-        # Fecha y hora exacta de "impresión" (creación del lote)
+        # Fecha y hora exacta de “impresión” del lote
         printing_dt = timezone.now()
 
-        # Normalizamos a rows + meta y FORZAMOS printing_date por detrás
+        # Normaliza a rows + meta y fuerza printing_date desde servidor
         if isinstance(payload, dict) and "rows" in payload:
             meta = payload.get("meta", {}) or {}
             rows = payload.get("rows", []) or []
@@ -145,8 +145,7 @@ class CruceroBulkView(APIView):
                     v = meta.get(k, None)
                     if v not in (None, ""):
                         rr[k] = v
-                # siempre imponemos printing_date en servidor
-                rr["printing_date"] = printing_dt
+                rr["printing_date"] = printing_dt  # siempre desde backend
                 full_rows.append(rr)
             rows = full_rows
         else:
@@ -185,20 +184,10 @@ class CruceroBulkView(APIView):
                 PedidoCrucero.objects.bulk_create([PedidoCrucero(**r) for r in lote])
                 created += len(lote)
 
-                # Crear también Pedidos si meta.empresa está presente (IDs numéricos)
+                # Crear también Pedidos si meta.empresa está presente
                 empresa_id = meta.get("empresa")
                 if empresa_id:
-                    estado_pedido  = meta.get("estado_pedido") or "pagado"
-                    lugar_entrega  = meta.get("lugar_entrega") or (f"Terminal {lote[0].get('terminal','')}".strip())
-                    lugar_recogida = meta.get("lugar_recogida") or ""
-                    emisores_raw   = meta.get("emisores", None)
-
-                    emisores_id = None
-                    try:
-                        if emisores_raw not in (None, "", "null"):
-                            emisores_id = int(emisores_raw)
-                    except (TypeError, ValueError):
-                        emisores_id = None
+                    estado_pedido = meta.get("estado_pedido") or "pagado"
 
                     ped_objs = []
                     for r in lote:
@@ -207,8 +196,7 @@ class CruceroBulkView(APIView):
                             user=request.user,
                             excursion=r.get("excursion") or "",
                             estado=estado_pedido,
-                            lugar_entrega=lugar_entrega or "",
-                            lugar_recogida=lugar_recogida or "",
+                            # ¡Eliminados: lugar_entrega, lugar_recogida, emisores!
                             fecha_inicio=service_date,
                             fecha_fin=None,
                             pax=r.get("pax") or 0,
@@ -223,12 +211,9 @@ class CruceroBulkView(APIView):
                                     f"Proveedor: {lote[0].get('supplier') or ''}",
                                     f"Terminal: {lote[0].get('terminal') or ''}",
                                     f"Impresión: {printing_dt.isoformat(timespec='minutes')}",
-                                ] if x and not x.endswith(": ")
-                            )
+                                ] if x and not x.endswith(': ')
+                            ),
                         )
-                        if emisores_id is not None:
-                            kwargs["emisores_id"] = emisores_id
-
                         ped_objs.append(Pedido(**kwargs))
 
                     if ped_objs:
