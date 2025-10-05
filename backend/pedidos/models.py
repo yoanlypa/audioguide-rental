@@ -48,7 +48,7 @@ class Pedido(models.Model):
     lugar_recogida = models.CharField(max_length=150, blank=True)
     notas = models.TextField(blank=True)
     bono = models.CharField(max_length=100, blank=True)
-    emisores = models.PositiveIntegerField()
+    emisores = models.PositiveIntegerField(null=True, blank=True)
     pax = models.PositiveIntegerField()
     guia = models.CharField(max_length=150, blank=True)
     updates = models.JSONField(default=list, blank=True, editable=False)
