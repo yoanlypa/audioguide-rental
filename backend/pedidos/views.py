@@ -338,8 +338,10 @@ class PedidoOpsViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def delivered(self, request, pk=None):
         obj = self.get_object()
-        obj.set_delivered(user=request.user)
-        return Response({"ok": True, "status": "entregado", "id": obj.id})
+        delivered_pax = request.data.get("delivered_pax", None)
+        override_pax = bool(request.data.get("override_pax", False))
+        obj.set_delivered(user=request.user, delivered_pax=delivered_pax, override_pax=override_pax)
+        return Response({"ok": True, "status": "entregado", "id": obj.id, "pax": obj.pax})
 
     @action(detail=True, methods=["post"])
     def collected(self, request, pk=None):

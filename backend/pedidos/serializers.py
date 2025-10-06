@@ -1,16 +1,16 @@
-from rest_framework import serializers
-from .models import Pedido, PedidoCrucero
-from .models import CustomUser
+# pedidos/serializers.py
 from django.contrib.auth import authenticate, get_user_model
-from rest_framework import exceptions
-from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework import serializers
-from .models import PedidoCrucero, Empresa
-from django.contrib.auth import get_user_model
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+
+from .models import Pedido, PedidoCrucero, Empresa, CustomUser
 
 User = get_user_model()
 
 
+# -----------------------------
+#  Auth
+# -----------------------------
 class CustomUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
@@ -27,65 +27,99 @@ class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
         email = attrs.get("email")
         password = attrs.get("password")
 
-        if email and password:
-            user = authenticate(
-                request=self.context.get("request"), email=email, password=password
-            )
+        if not (email and password):
+            raise serializers.ValidationError({"detail": "Debe incluir email y contraseña."})
 
-            if not user:
-                raise serializers.ValidationError(
-                    ("Credenciales inválidas."), code="authorization"
-                )
-        else:
-            raise serializers.ValidationError(
-                ("Debe incluir email y contraseña."), code="authorization"
-            )
+        user = authenticate(
+            request=self.context.get("request"),
+            email=email,
+            password=password,
+        )
+        if not user:
+            raise serializers.ValidationError({"detail": "Credenciales inválidas."})
 
         refresh = self.get_token(user)
-
-        return {
-            "refresh": str(refresh),
-            "access": str(refresh.access_token),
-        }
+        return {"refresh": str(refresh), "access": str(refresh.access_token)}
 
 
+# -----------------------------
+#  Helpers
+# -----------------------------
+class DateOrDateTimeToDateField(serializers.DateField):
+    """
+    Permite strings ISO con hora (YYYY-MM-DDTHH:MM...) y conserva sólo la fecha.
+    """
+    def to_internal_value(self, value):
+        if isinstance(value, str) and "T" in value:
+            value = value.split("T", 1)[0]
+        return super().to_internal_value(value)
+
+
+# -----------------------------
+#  Empresas
+# -----------------------------
+class EmpresaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Empresa
+        fields = ["id", "nombre"]
+
+
+# -----------------------------
+#  Pedido "genérico" (usado en /api/pedidos/ y mis-pedidos)
+#  OJO: Corrección para empresa FK si se usa este serializer.
+# -----------------------------
 class PedidoSerializer(serializers.ModelSerializer):
     class Meta:
         model = Pedido
         fields = "__all__"
         read_only_fields = ["id", "fecha_creacion", "fecha_modificacion", "updates"]
+
     def create(self, validated_data):
-        request = self.context["request"]
-        validated_data["user"] = request.user
-        validated_data["empresa"] = (
-            request.user.empresa
-        )  # asumiendo que User tiene un campo empresa
+        """
+        - user siempre es el request.user
+        - empresa:
+            * Si viene en el payload (p.ej. staff), se respeta.
+            * Si NO viene y el usuario NO es staff, se resuelve por nombre (CustomUser.empresa).
+        """
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if not user or not user.is_authenticated:
+            raise serializers.ValidationError({"detail": "No autenticado."})
+
+        validated_data["user"] = user
+
+        if not validated_data.get("empresa"):
+            if user.is_staff:
+                raise serializers.ValidationError({"empresa": "Empresa es obligatoria para staff."})
+            nombre = (getattr(user, "empresa", "") or "").strip()
+            if not nombre:
+                raise serializers.ValidationError({"empresa": "Tu usuario no tiene empresa asignada."})
+            try:
+                empresa_obj = Empresa.objects.get(nombre=nombre)
+            except Empresa.DoesNotExist:
+                raise serializers.ValidationError({"empresa": f"No existe Empresa con nombre '{nombre}' asociada a tu usuario."})
+            validated_data["empresa"] = empresa_obj
+
+        # Limpieza básica de strings
+        for k in ["excursion", "lugar_entrega", "lugar_recogida", "notas", "bono", "guia", "tipo_servicio", "estado"]:
+            if k in validated_data and isinstance(validated_data[k], str):
+                validated_data[k] = validated_data[k].strip()
+
         return super().create(validated_data)
 
-    def update(self, instance, validated_data):
-        servicios_data = validated_data.pop("servicios")
-        instance = super().update(instance, validated_data)
-
-        # Elimina servicios existentes
-        instance.servicios.all().delete()
+    # (Tu método update previo referenciaba "servicios" y rompía. Lo retiramos.)
 
 
-class DateOrDateTimeToDateField(serializers.DateField):
-    def to_internal_value(self, value):
-        if isinstance(value, str) and "T" in value:
-            value = value.split("T", 1)[0]  # nos quedamos con la parte de fecha
-        return super().to_internal_value(value)
-
-# ===== LECTURA (board) =====
-
+# -----------------------------
+#  Pedidos – Lectura (OPS board)
+# -----------------------------
 class PedidoOpsSerializer(serializers.ModelSerializer):
-    # Empresa puede no venir si el usuario NO es staff (la inyectamos desde su perfil)
+    # Si el usuario no es staff, empresa la inyectamos en el View/WriteSerializer
     empresa = serializers.PrimaryKeyRelatedField(
         queryset=Empresa.objects.all(),
         required=False,
         allow_null=True
     )
-    # El user no viaja en el payload: se autoinyecta
     user = serializers.HiddenField(default=serializers.CurrentUserDefault())
 
     class Meta:
@@ -111,40 +145,23 @@ class PedidoOpsSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         """
-        - Si es staff: 'empresa' es obligatoria (ID válido).
-        - Si NO es staff: resolvemos Empresa a partir de user.empresa (string)
-          y la inyectamos en attrs["empresa"].
+        Validación ligera para lecturas/escrituras mínimas desde el board.
+        (La creación robusta la hacemos con PedidoOpsWriteSerializer.)
         """
-        request = self.context.get("request")
-        user = getattr(request, "user", None)
-
-        if not user or not user.is_authenticated:
-            raise serializers.ValidationError({"detail": "No autenticado."})
-
-        if user.is_staff:
-            if not attrs.get("empresa"):
-                raise serializers.ValidationError({"empresa": "Este campo es obligatorio para staff."})
-            return attrs
-
-        # No-staff: resolvemos por nombre (CustomUser.empresa es CharField)
-        nombre = (getattr(user, "empresa", "") or "").strip()
-        if not nombre:
-            raise serializers.ValidationError({"empresa": "Tu usuario no tiene empresa asignada."})
-
-        try:
-            empresa_obj = Empresa.objects.get(nombre=nombre)
-        except Empresa.DoesNotExist:
-            raise serializers.ValidationError({"empresa": f"No existe Empresa con nombre '{nombre}' asociada a tu usuario."})
-
-        attrs["empresa"] = empresa_obj
         return attrs
-# --- ESCRITURA ---
+
+
+# -----------------------------
+#  Pedidos – Escritura (OPS board → crear pedido)
+# -----------------------------
 class PedidoOpsWriteSerializer(serializers.ModelSerializer):
-    # fechas flexibles ya como lo tenías
     fecha_inicio = DateOrDateTimeToDateField(required=True)
     fecha_fin = DateOrDateTimeToDateField(required=False, allow_null=True)
     tipo_servicio = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    emisores = serializers.CharField(required=False, allow_blank=True, allow_null=True, default="")  # <-- NUEVO
+
+    # emisores en el modelo es PositiveIntegerField(null=True, blank=True)
+    # Aceptamos "", null o número.
+    emisores = serializers.IntegerField(required=False, allow_null=True)
 
     class Meta:
         model = Pedido
@@ -160,7 +177,7 @@ class PedidoOpsWriteSerializer(serializers.ModelSerializer):
             "bono",
             "guia",
             "tipo_servicio",
-            "emisores",          # <-- NUEVO
+            "emisores",
             "notas",
         )
         extra_kwargs = {
@@ -176,24 +193,53 @@ class PedidoOpsWriteSerializer(serializers.ModelSerializer):
         ff = attrs.get("fecha_fin")
         if ff and fi and ff < fi:
             raise serializers.ValidationError({"fecha_fin": "Debe ser >= fecha_inicio."})
-        # default defensivo para NOT NULL
-        if not attrs.get("emisores"):
-            attrs["emisores"] = ""
+
+        # Normaliza tipo_servicio tal como lo requiere tu modelo (sin romper lo existente)
+        ts = attrs.get("tipo_servicio")
+        if ts:
+            ts = ts.strip()
+            # Permite valores “frontend friendly” y los traduce si hace falta:
+            alias = {
+                "mediodia": "mediodia",
+                "medio_dia": "mediodia",
+                "medio-dia": "mediodia",
+                "dia_completo": "dia_Completo",
+                "día completo": "dia_Completo",
+                "dia completo": "dia_Completo",
+                "circuito": "circuito",
+                "crucero": "crucero",
+            }
+            attrs["tipo_servicio"] = alias.get(ts, ts)
+
+        # emisores: si vino vacío como string → None
+        if "emisores" in attrs and attrs["emisores"] == "":
+            attrs["emisores"] = None
+
+        # Limpieza básica
+        for k in ["excursion", "lugar_entrega", "lugar_recogida", "notas", "bono", "guia", "estado"]:
+            if k in attrs and isinstance(attrs[k], str):
+                attrs[k] = attrs[k].strip()
+
         return attrs
-    
+
+
+# -----------------------------
+#  Cruceros
+# -----------------------------
 class PedidoCruceroSerializer(serializers.ModelSerializer):
+    # printing_date lo fija el backend (read_only)
     printing_date = serializers.DateTimeField(read_only=True)
+
     class Meta:
-        model  = PedidoCrucero
+        model = PedidoCrucero
         fields = "__all__"
         read_only_fields = ["uploaded_at", "updated_at"]
         extra_kwargs = {
-            # ❌ No exigir emergency_contact
             "emergency_contact": {"required": False, "allow_blank": True},
-            # ✉️ Otros campos opcionales
-            "language":   {"required": False, "allow_blank": True},
+            "language": {"required": False, "allow_blank": True},
             "arrival_time": {"required": False, "allow_null": True},
         }
+
     def create(self, validated):
         key = {
             "service_date": validated["service_date"],
@@ -203,31 +249,20 @@ class PedidoCruceroSerializer(serializers.ModelSerializer):
         nuevo_status = validated["status"]
 
         existente = PedidoCrucero.objects.filter(**key).first()
-
         if existente:
-            # 1️⃣  Si el existente es FINAL y llega PRELIMINARY → error
             if existente.status == "final" and nuevo_status == "preliminary":
                 raise serializers.ValidationError(
                     "Registro final ya confirmado; no se puede reemplazar por preliminary."
                 )
-            # 2️⃣  En cualquier otro caso, sobreescribimos
             for campo, valor in validated.items():
                 setattr(existente, campo, valor)
             existente.save()
             self.instance = existente
             return existente
 
-        # 3️⃣  No existe → creamos normalmente
         return PedidoCrucero.objects.create(**validated)
-
 
     def validate(self, attrs):
         if not attrs.get("service_date") or not attrs.get("ship"):
-            raise serializers.ValidationError(
-                "service_date y ship son obligatorios."
-            )
+            raise serializers.ValidationError("service_date y ship son obligatorios.")
         return attrs
-class EmpresaSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Empresa
-        fields = ["id", "nombre"]

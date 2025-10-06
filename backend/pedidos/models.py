@@ -66,11 +66,23 @@ class Pedido(models.Model):
                 entry["note"] = str(note)
             self.updates = (self.updates or []) + [entry]
 
-    def set_delivered(self, user=None, note=None):
-            self.estado = "entregado"
-            self._log_update("delivered", user=user, note=note)
-            # no referenciar campos inexistentes ni fecha_modificacion si no estás seguro
-            self.save(update_fields=["estado", "updates"])
+    def set_delivered(self, user=None, note=None, delivered_pax=None, override_pax=False):
+        self.estado = "entregado"
+        extra_note = []
+        if delivered_pax is not None:
+            try:
+                dp = int(delivered_pax)
+                extra_note.append(f"delivered_pax={dp}")
+                if override_pax:
+                    self.pax = dp
+                    extra_note.append("override_pax=True")
+            except Exception:
+                extra_note.append(f"delivered_pax_invalid={delivered_pax}")
+        if note:
+            extra_note.append(str(note))
+        full_note = "; ".join([n for n in extra_note if n]) if extra_note else None
+        self._log_update("delivered", user=user, note=full_note)
+        self.save(update_fields=["estado", "updates", "pax"])
 
     def set_collected(self, user=None, note=None):
             self.estado = "recogido"
