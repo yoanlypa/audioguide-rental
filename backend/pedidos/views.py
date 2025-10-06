@@ -28,26 +28,6 @@ from .serializers import (
     EmpresaSerializer,
 )
 
-
-class EmpresaViewSet(viewsets.ReadOnlyModelViewSet):
-    """
-    GET /api/empresas/ (staff: todas | no-staff: solo la suya)
-    GET /api/empresas/{id}/
-    """
-    permission_classes = [permissions.IsAuthenticated]
-    queryset = Empresa.objects.all()
-
-    def get_queryset(self):
-        qs = super().get_queryset().order_by("nombre")
-        u = self.request.user
-        if u.is_staff:
-            return qs
-        # filtra por el nombre que tenga el usuario en CustomUser.empresa
-        nombre = (getattr(u, "empresa", "") or "").strip()
-        if not nombre:
-            return qs.none()
-        return qs.filter(nombre=nombre)
-
 # ---------------------------------------------------------
 # Pedidos "normales"
 # ---------------------------------------------------------
@@ -286,10 +266,20 @@ class IsAuthenticatedAndOwnerOrStaff(permissions.BasePermission):
 
 
 class EmpresaViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    GET /api/empresas/ (staff: todas | no-staff: solo la suya)
+    """
+    permission_classes = [permissions.IsAuthenticated]
     queryset = Empresa.objects.all().order_by("nombre")
     serializer_class = EmpresaSerializer
-    permission_classes = [IsAuthenticated]
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        u = self.request.user
+        if u.is_staff:
+            return qs
+        nombre = (getattr(u, "empresa", "") or "").strip()
+        return qs.filter(nombre=nombre) if nombre else qs.none()
 
 class PedidoOpsViewSet(viewsets.ModelViewSet):
     serializer_class = PedidoOpsSerializer
