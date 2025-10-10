@@ -10,6 +10,7 @@ from .views import (
     BulkPedidos,
     CruceroBulkView,
     EmpresaViewSet,
+    ReminderViewSet,
     me_view,
 )
 
@@ -18,6 +19,7 @@ router = DefaultRouter()
 router.register(r"pedidos", PedidoViewSet, basename="pedidos")
 router.register(r"ops/pedidos", PedidoOpsViewSet, basename="ops-pedidos")
 router.register(r"empresas", EmpresaViewSet, basename="empresas")
+router.register(r"reminders", ReminderViewSet, basename="reminders") 
 
 def empresas_ping(_):
     return JsonResponse({"ok": True, "where": "pedidos.urls/empresas-ping"})

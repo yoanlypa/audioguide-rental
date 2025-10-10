@@ -3,7 +3,7 @@ from django.contrib.auth import authenticate, get_user_model
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
-from .models import Pedido, PedidoCrucero, Empresa, CustomUser
+from .models import Pedido, PedidoCrucero, Empresa, CustomUser, Reminder
 
 User = get_user_model()
 
@@ -266,3 +266,15 @@ class PedidoCruceroSerializer(serializers.ModelSerializer):
         if not attrs.get("service_date") or not attrs.get("ship"):
             raise serializers.ValidationError("service_date y ship son obligatorios.")
         return attrs
+class ReminderSerializer(serializers.ModelSerializer):
+    user = serializers.HiddenField(default=serializers.CurrentUserDefault())
+
+    class Meta:
+        model = Reminder
+        fields = ["id", "user", "title", "note", "due_at", "created_at", "done"]
+        read_only_fields = ["id", "created_at"]
+
+    def validate_due_at(self, value):
+        if value <= timezone.now():
+            raise serializers.ValidationError("La fecha/hora debe ser futura.")
+        return value

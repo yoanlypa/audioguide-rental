@@ -19,13 +19,13 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
-from .models import Pedido, PedidoCrucero, Empresa
+from .models import Pedido, PedidoCrucero, Empresa, Reminder
 from .serializers import (
     PedidoSerializer,
     PedidoCruceroSerializer,
     EmailTokenObtainPairSerializer,
     PedidoOpsSerializer, PedidoOpsWriteSerializer,
-    EmpresaSerializer,
+    EmpresaSerializer, ReminderSerializer,
 )
 
 # ---------------------------------------------------------
@@ -284,9 +284,12 @@ class EmpresaViewSet(viewsets.ReadOnlyModelViewSet):
 class PedidoOpsViewSet(viewsets.ModelViewSet):
     serializer_class = PedidoOpsSerializer
     permission_classes = [IsAuthenticatedAndOwnerOrStaff]
-
-    # DRF exige queryset o get_queryset. Dejamos ambos:
     queryset = Pedido.objects.all().order_by("-fecha_inicio", "-id")
+
+    def get_serializer_class(self):
+        if self.action in ("create", "update", "partial_update"):
+            return PedidoOpsWriteSerializer
+        return PedidoOpsSerializer
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -339,7 +342,25 @@ class PedidoOpsViewSet(viewsets.ModelViewSet):
         obj.set_collected(user=request.user)
         return Response({"ok": True, "status": "recogido", "id": obj.id})
 
+class ReminderViewSet(viewsets.ModelViewSet):
+    """
+    /api/reminders/
+    - staff: ve todos (filtrables por ?user=ID)
+    - no staff: solo los suyos
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ReminderSerializer
+    queryset = Reminder.objects.all()
 
+    def get_queryset(self):
+        qs = super().get_queryset().order_by("done", "due_at", "-id")
+        u = self.request.user
+        if u.is_staff:
+            user_id = self.request.query_params.get("user")
+            if user_id:
+                qs = qs.filter(user_id=user_id)
+            return qs
+        return qs.filter(user=u)
 # ---------------------------------------------------------
 # Perfil simple para el frontend (/api/me/)
 # ---------------------------------------------------------
@@ -364,3 +385,7 @@ def me_view(request):
         "empresa_name": empresa_name,
         "empresa_id": empresa_id,
     })
+    
+    
+    
+    

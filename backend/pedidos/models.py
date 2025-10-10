@@ -122,3 +122,16 @@ class PedidoCrucero(models.Model):
         
     def __str__(self):
         return f"{self.service_date} - {self.ship} - {self.status}"
+class Reminder(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="reminders")
+    title = models.CharField(max_length=200)
+    note = models.TextField(blank=True)
+    due_at = models.DateTimeField()  # fecha y hora programada
+    created_at = models.DateTimeField(auto_now_add=True)
+    done = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["done", "due_at", "-id"]
+
+    def __str__(self):
+        return f"{self.title} @ {self.due_at.isoformat()}"
