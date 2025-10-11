@@ -1,16 +1,23 @@
 # pedidos/serializers.py
-from django.contrib.auth import authenticate, get_user_model
 from rest_framework import serializers
+from django.contrib.auth import authenticate, get_user_model
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from django.utils import timezone
-from .models import Pedido, PedidoCrucero, Empresa, CustomUser, Reminder
+
+from django.utils import timezone  # ← NECESARIO para validate_due_at
+
+from .models import (
+    Pedido,
+    PedidoCrucero,
+    Empresa,
+    CustomUser,
+    # Asegúrate de tener este modelo en models.py
+    # (ya lo estás usando en /api/reminders/)
+    Reminder,
+)
 
 User = get_user_model()
 
 
-# -----------------------------
-#  Auth
-# -----------------------------
 class CustomUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
@@ -27,47 +34,26 @@ class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
         email = attrs.get("email")
         password = attrs.get("password")
 
-        if not (email and password):
-            raise serializers.ValidationError({"detail": "Debe incluir email y contraseña."})
-
-        user = authenticate(
-            request=self.context.get("request"),
-            email=email,
-            password=password,
-        )
-        if not user:
-            raise serializers.ValidationError({"detail": "Credenciales inválidas."})
+        if email and password:
+            user = authenticate(
+                request=self.context.get("request"), email=email, password=password
+            )
+            if not user:
+                raise serializers.ValidationError(
+                    ("Credenciales inválidas."), code="authorization"
+                )
+        else:
+            raise serializers.ValidationError(
+                ("Debe incluir email y contraseña."), code="authorization"
+            )
 
         refresh = self.get_token(user)
-        return {"refresh": str(refresh), "access": str(refresh.access_token)}
+        return {
+            "refresh": str(refresh),
+            "access": str(refresh.access_token),
+        }
 
 
-# -----------------------------
-#  Helpers
-# -----------------------------
-class DateOrDateTimeToDateField(serializers.DateField):
-    """
-    Permite strings ISO con hora (YYYY-MM-DDTHH:MM...) y conserva sólo la fecha.
-    """
-    def to_internal_value(self, value):
-        if isinstance(value, str) and "T" in value:
-            value = value.split("T", 1)[0]
-        return super().to_internal_value(value)
-
-
-# -----------------------------
-#  Empresas
-# -----------------------------
-class EmpresaSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Empresa
-        fields = ["id", "nombre"]
-
-
-# -----------------------------
-#  Pedido "genérico" (usado en /api/pedidos/ y mis-pedidos)
-#  OJO: Corrección para empresa FK si se usa este serializer.
-# -----------------------------
 class PedidoSerializer(serializers.ModelSerializer):
     class Meta:
         model = Pedido
@@ -75,50 +61,41 @@ class PedidoSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "fecha_creacion", "fecha_modificacion", "updates"]
 
     def create(self, validated_data):
-        """
-        - user siempre es el request.user
-        - empresa:
-            * Si viene en el payload (p.ej. staff), se respeta.
-            * Si NO viene y el usuario NO es staff, se resuelve por nombre (CustomUser.empresa).
-        """
-        request = self.context.get("request")
-        user = getattr(request, "user", None)
-        if not user or not user.is_authenticated:
-            raise serializers.ValidationError({"detail": "No autenticado."})
-
-        validated_data["user"] = user
-
-        if not validated_data.get("empresa"):
-            if user.is_staff:
-                raise serializers.ValidationError({"empresa": "Empresa es obligatoria para staff."})
-            nombre = (getattr(user, "empresa", "") or "").strip()
-            if not nombre:
-                raise serializers.ValidationError({"empresa": "Tu usuario no tiene empresa asignada."})
-            try:
-                empresa_obj = Empresa.objects.get(nombre=nombre)
-            except Empresa.DoesNotExist:
-                raise serializers.ValidationError({"empresa": f"No existe Empresa con nombre '{nombre}' asociada a tu usuario."})
-            validated_data["empresa"] = empresa_obj
-
-        # Limpieza básica de strings
-        for k in ["excursion", "lugar_entrega", "lugar_recogida", "notas", "bono", "guia", "tipo_servicio", "estado"]:
-            if k in validated_data and isinstance(validated_data[k], str):
-                validated_data[k] = validated_data[k].strip()
-
+        request = self.context["request"]
+        validated_data["user"] = request.user
+        validated_data["empresa"] = (
+            request.user.empresa
+        )  # si CustomUser.empresa fuese FK, ajusta a request.user.empresa_id
         return super().create(validated_data)
 
-    # (Tu método update previo referenciaba "servicios" y rompía. Lo retiramos.)
+    def update(self, instance, validated_data):
+        # Si no tienes servicios en el modelo, elimina estas dos líneas
+        servicios_data = validated_data.pop("servicios", None)
+        instance = super().update(instance, validated_data)
+        if servicios_data is not None and hasattr(instance, "servicios"):
+            instance.servicios.all().delete()
+        return instance
 
 
-# -----------------------------
-#  Pedidos – Lectura (OPS board)
-# -----------------------------
+class DateOrDateTimeToDateField(serializers.DateField):
+    def to_internal_value(self, value):
+        if isinstance(value, str) and "T" in value:
+            value = value.split("T", 1)[0]  # quedarse con YYYY-MM-DD
+        return super().to_internal_value(value)
+
+
+# ====== OPS (Lectura) ======
+class EmpresaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Empresa
+        fields = ["id", "nombre"]
+
+
 class PedidoOpsSerializer(serializers.ModelSerializer):
-    # Si el usuario no es staff, empresa la inyectamos en el View/WriteSerializer
     empresa = serializers.PrimaryKeyRelatedField(
         queryset=Empresa.objects.all(),
         required=False,
-        allow_null=True
+        allow_null=True,
     )
     user = serializers.HiddenField(default=serializers.CurrentUserDefault())
 
@@ -144,24 +121,42 @@ class PedidoOpsSerializer(serializers.ModelSerializer):
         read_only_fields = ["id"]
 
     def validate(self, attrs):
-        """
-        Validación ligera para lecturas/escrituras mínimas desde el board.
-        (La creación robusta la hacemos con PedidoOpsWriteSerializer.)
-        """
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if not user or not user.is_authenticated:
+            raise serializers.ValidationError({"detail": "No autenticado."})
+
+        if user.is_staff:
+            if not attrs.get("empresa"):
+                raise serializers.ValidationError(
+                    {"empresa": "Este campo es obligatorio para staff."}
+                )
+            return attrs
+
+        # No-staff: resolver Empresa por nombre (CustomUser.empresa es CharField)
+        nombre = (getattr(user, "empresa", "") or "").strip()
+        if not nombre:
+            raise serializers.ValidationError(
+                {"empresa": "Tu usuario no tiene empresa asignada."}
+            )
+
+        try:
+            empresa_obj = Empresa.objects.get(nombre=nombre)
+        except Empresa.DoesNotExist:
+            raise serializers.ValidationError(
+                {"empresa": f"No existe Empresa con nombre '{nombre}' asociada a tu usuario."}
+            )
+
+        attrs["empresa"] = empresa_obj
         return attrs
 
 
-# -----------------------------
-#  Pedidos – Escritura (OPS board → crear pedido)
-# -----------------------------
+# ====== OPS (Escritura) ======
 class PedidoOpsWriteSerializer(serializers.ModelSerializer):
     fecha_inicio = DateOrDateTimeToDateField(required=True)
     fecha_fin = DateOrDateTimeToDateField(required=False, allow_null=True)
     tipo_servicio = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-
-    # emisores en el modelo es PositiveIntegerField(null=True, blank=True)
-    # Aceptamos "", null o número.
-    emisores = serializers.IntegerField(required=False, allow_null=True)
+    emisores = serializers.CharField(required=False, allow_blank=True, allow_null=True, default="")
 
     class Meta:
         model = Pedido
@@ -193,41 +188,12 @@ class PedidoOpsWriteSerializer(serializers.ModelSerializer):
         ff = attrs.get("fecha_fin")
         if ff and fi and ff < fi:
             raise serializers.ValidationError({"fecha_fin": "Debe ser >= fecha_inicio."})
-
-        # Normaliza tipo_servicio tal como lo requiere tu modelo (sin romper lo existente)
-        ts = attrs.get("tipo_servicio")
-        if ts:
-            ts = ts.strip()
-            # Permite valores “frontend friendly” y los traduce si hace falta:
-            alias = {
-                "mediodia": "mediodia",
-                "medio_dia": "mediodia",
-                "medio-dia": "mediodia",
-                "dia_completo": "dia_Completo",
-                "día completo": "dia_Completo",
-                "dia completo": "dia_Completo",
-                "circuito": "circuito",
-                "crucero": "crucero",
-            }
-            attrs["tipo_servicio"] = alias.get(ts, ts)
-
-        # emisores: si vino vacío como string → None
-        if "emisores" in attrs and attrs["emisores"] == "":
-            attrs["emisores"] = None
-
-        # Limpieza básica
-        for k in ["excursion", "lugar_entrega", "lugar_recogida", "notas", "bono", "guia", "estado"]:
-            if k in attrs and isinstance(attrs[k], str):
-                attrs[k] = attrs[k].strip()
-
+        if not attrs.get("emisores"):
+            attrs["emisores"] = ""
         return attrs
 
 
-# -----------------------------
-#  Cruceros
-# -----------------------------
 class PedidoCruceroSerializer(serializers.ModelSerializer):
-    # printing_date lo fija el backend (read_only)
     printing_date = serializers.DateTimeField(read_only=True)
 
     class Meta:
@@ -243,8 +209,8 @@ class PedidoCruceroSerializer(serializers.ModelSerializer):
     def create(self, validated):
         key = {
             "service_date": validated["service_date"],
-            "ship":        validated["ship"],
-            "sign":        validated["sign"],
+            "ship": validated["ship"],
+            "sign": validated["sign"],
         }
         nuevo_status = validated["status"]
 
@@ -266,15 +232,30 @@ class PedidoCruceroSerializer(serializers.ModelSerializer):
         if not attrs.get("service_date") or not attrs.get("ship"):
             raise serializers.ValidationError("service_date y ship son obligatorios.")
         return attrs
+
+
+# ====== Reminders ======
 class ReminderSerializer(serializers.ModelSerializer):
     user = serializers.HiddenField(default=serializers.CurrentUserDefault())
 
     class Meta:
         model = Reminder
-        fields = ["id", "user", "title", "note", "due_at", "created_at", "done"]
-        read_only_fields = ["id", "created_at"]
+        fields = ["id", "user", "title", "notes", "due_at", "created_at", "done_at"]
+        read_only_fields = ["id", "created_at", "done_at"]
 
     def validate_due_at(self, value):
-        if value <= timezone.now():
-            raise serializers.ValidationError("La fecha/hora debe ser futura.")
+        """
+        Acepta naive datetimes y los vuelve aware en la TZ actual,
+        y no permite fechas en el pasado.
+        """
+        if value is None:
+            raise serializers.ValidationError("Este campo es obligatorio.")
+
+        # Si llega naive (sin tz), añadirla
+        if timezone.is_naive(value):
+            value = timezone.make_aware(value, timezone.get_current_timezone())
+
+        if value < timezone.now():
+            raise serializers.ValidationError("No puede ser en el pasado.")
+
         return value
