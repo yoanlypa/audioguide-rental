@@ -1,3 +1,4 @@
+from datetime import timezone
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from .models import  Empresa, Pedido, CustomUser, PedidoCrucero, Reminder
@@ -20,11 +21,19 @@ class PedidoCruceroAdmin(admin.ModelAdmin):
     ordering = ['service_date', 'ship', 'sign']
 @admin.register(Reminder)
 class ReminderAdmin(admin.ModelAdmin):
-    list_display = ("id", "user", "title", "due_at", "done", "created_at")
-    list_filter = ("done", "due_at", "user")
-    search_fields = ("title", "note", "user__email", "user__username")
-    
-admin.site.register(Pedido)
-admin.site.register(CustomUser, CustomUserAdmin)
-admin.site.register(Empresa)
+    list_display = ("id", "title", "due_at", "overdue", "user", "created_at")
+    list_select_related = ("user",)
+    search_fields = ("title", "note", "user__username", "user__email")
+    # Quitamos 'done' porque no existe en el modelo; filtramos por fecha y usuario
+    list_filter = ("due_at", "user")
+    ordering = ("-due_at", "-id")
+    readonly_fields = ("created_at",)
 
+    def overdue(self, obj):
+        """Indicador calculado de si está vencido."""
+        if not obj.due_at:
+            return False
+        return obj.due_at < timezone.now()
+
+    overdue.boolean = True
+    overdue.short_description = "Vencido"

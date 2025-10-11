@@ -123,15 +123,23 @@ class PedidoCrucero(models.Model):
     def __str__(self):
         return f"{self.service_date} - {self.ship} - {self.status}"
 class Reminder(models.Model):
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="reminders")
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="reminders"
+    )
     title = models.CharField(max_length=200)
-    note = models.TextField(blank=True)
-    due_at = models.DateTimeField()  # fecha y hora programada
+    note = models.TextField(blank=True)          # <- tu serializer mapea "notes" → "note"
+    due_at = models.DateTimeField()              # <- tu serializer usa "due_at" directamente
+    is_done = models.BooleanField(default=False)
+    done_at = models.DateTimeField(null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
-    done = models.BooleanField(default=False)
 
     class Meta:
-        ordering = ["done", "due_at", "-id"]
+        ordering = ["is_done", "due_at", "-created_at"]
 
-    def __str__(self):
-        return f"{self.title} @ {self.due_at.isoformat()}"
+    def mark_done(self):
+        self.is_done = True
+        self.done_at = timezone.now()
+        self.save(update_fields=["is_done", "done_at"])
