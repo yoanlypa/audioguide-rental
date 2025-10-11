@@ -2,7 +2,7 @@
 from django.contrib.auth import authenticate, get_user_model
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-
+from django.utils import timezone
 from .models import Pedido, PedidoCrucero, Empresa, CustomUser, Reminder
 
 User = get_user_model()
