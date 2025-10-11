@@ -2,7 +2,7 @@
 from rest_framework import serializers
 from django.contrib.auth import authenticate, get_user_model
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-
+from django.utils.dateparse import parse_datetime
 from django.utils import timezone  # ← NECESARIO para validate_due_at
 
 from .models import (
@@ -10,8 +10,6 @@ from .models import (
     PedidoCrucero,
     Empresa,
     CustomUser,
-    # Asegúrate de tener este modelo en models.py
-    # (ya lo estás usando en /api/reminders/)
     Reminder,
 )
 
@@ -244,35 +242,41 @@ class ReminderSerializer(serializers.ModelSerializer):
     Inyecta 'user' si el modelo tiene ese FK.
     """
 
-    # Definimos después los campos de Meta dinámicamente; mantenemos '__all__'
     class Meta:
         model = Reminder
         fields = "__all__"
-        # read_only lo calculamos en __init__ si los campos existen
         read_only_fields = []
 
     # Aliases aceptados desde el frontend
-    NOTES_ALIASES = ["notes", "note", "notas", "nota", "description", "details", "observaciones", "body", "text", "mensaje", "content"]
-    DUE_ALIASES = ["due_at", "when", "scheduled_at", "scheduled_for", "remind_at", "at", "fecha", "fecha_hora"]
+    NOTES_ALIASES = ["notes", "note", "notas", "nota", "description", "details",
+                     "observaciones", "body", "text", "mensaje", "content"]
+    DUE_ALIASES   = ["due_at", "when", "scheduled_at", "scheduled_for",
+                     "remind_at", "at", "fecha", "fecha_hora"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self._fields_in_model = _model_field_names(self.Meta.model)
-        # Resuelve el nombre real del campo de notas y fecha en el modelo
-        self.real_notes_field = next((n for n in self.NOTES_ALIASES if n in self._fields_in_model), None)
-        self.real_due_field = next((n for n in self.DUE_ALIASES if n in self._fields_in_model), None)
+        # Campos concretos del modelo
+        self._fields_in_model = {
+            f.name for f in self.Meta.model._meta.get_fields()
+            if getattr(f, "concrete", False)
+            and not getattr(f, "many_to_many", False)
+            and not getattr(f, "auto_created", False)
+        }
 
-        # Si el modelo tiene 'user', conviértelo en HiddenField(CurrentUserDefault())
+        # Resolver nombre real de campos "notes" y "due_at" en el modelo
+        self.real_notes_field = next((n for n in self.NOTES_ALIASES if n in self._fields_in_model), None)
+        self.real_due_field   = next((n for n in self.DUE_ALIASES   if n in self._fields_in_model), None)
+
+        # Si el modelo tiene FK user, lo ocultamos e inyectamos CurrentUser
         if "user" in self._fields_in_model:
             self.fields["user"] = serializers.HiddenField(default=serializers.CurrentUserDefault())
 
-        # Marca como solo-lectura si existen
+        # Marcar algunos como solo-lectura si existen
         for ro in ("id", "created_at", "done_at"):
             if ro in self.fields:
                 self.fields[ro].read_only = True
 
-    # -------- entrada ----------
     def to_internal_value(self, data):
         """
         Mapea alias del payload a los nombres reales del modelo.
@@ -281,22 +285,22 @@ class ReminderSerializer(serializers.ModelSerializer):
         if not isinstance(data, dict):
             return super().to_internal_value(data)
 
-        data = dict(data)  # copia editable
+        data = dict(data)  # copia
 
-        # Mapear notes -> real_notes_field
+        # Mapear notes -> campo real
         if "notes" in data and self.real_notes_field and self.real_notes_field != "notes":
             data[self.real_notes_field] = data.pop("notes")
 
-        # Mapear due_at -> real_due_field
+        # Mapear due_at -> campo real
         if "due_at" in data and self.real_due_field and self.real_due_field != "due_at":
             data[self.real_due_field] = data.pop("due_at")
 
-        # Normalizar fecha (si tenemos el campo real)
+        # Normalizar fecha si la tenemos
         if self.real_due_field and self.real_due_field in data:
             raw = data[self.real_due_field]
             dt = None
             if isinstance(raw, str):
-                # admite "2025-10-12T14:00:00" o con 'Z'
+                # admite 'Z' al final
                 raw2 = raw.replace("Z", "+00:00")
                 dt = parse_datetime(raw2)
             elif isinstance(raw, timezone.datetime):
@@ -312,23 +316,18 @@ class ReminderSerializer(serializers.ModelSerializer):
 
         return super().to_internal_value(data)
 
-    # -------- validaciones específicas ----------
     def validate(self, attrs):
-        # Validar que la fecha no sea pasada (si el modelo tiene campo de fecha)
+        # Si hay fecha, que no sea pasada
         if self.real_due_field and self.real_due_field in attrs:
             dt = attrs[self.real_due_field]
             if dt < timezone.now():
                 raise serializers.ValidationError({self.real_due_field: "No puede ser en el pasado."})
         return attrs
 
-    # -------- creación/actualización ----------
     def create(self, validated_data):
-        # Si el modelo tiene 'user' y no vino (HiddenField lo pone), asegurar:
+        # Inyectar user si existe en el modelo y no vino (HiddenField suele cubrirlo)
         if "user" in self._fields_in_model and "user" not in validated_data:
-            request = self.context.get("request")
-            if request and request.user and request.user.is_authenticated:
-                validated_data["user"] = request.user
+            req = self.context.get("request")
+            if req and getattr(req, "user", None) and req.user.is_authenticated:
+                validated_data["user"] = req.user
         return super().create(validated_data)
-
-    def update(self, instance, validated_data):
-        return super().update(instance, validated_data)
