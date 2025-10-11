@@ -344,23 +344,54 @@ class PedidoOpsViewSet(viewsets.ModelViewSet):
 
 class ReminderViewSet(viewsets.ModelViewSet):
     """
-    /api/reminders/
-    - staff: ve todos (filtrables por ?user=ID)
-    - no staff: solo los suyos
+    GET /api/reminders/?done=true|false&overdue=true|false&q=texto&from=ISO&to=ISO
     """
-    permission_classes = [permissions.IsAuthenticated]
     serializer_class = ReminderSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    # base: sólo los del usuario autenticado
     queryset = Reminder.objects.all()
 
     def get_queryset(self):
-        qs = super().get_queryset().order_by("done", "due_at", "-id")
-        u = self.request.user
-        if u.is_staff:
-            user_id = self.request.query_params.get("user")
-            if user_id:
-                qs = qs.filter(user_id=user_id)
-            return qs
-        return qs.filter(user=u)
+        qs = Reminder.objects.filter(user=self.request.user)
+
+        # --- filtros opcionales ---
+        done = (self.request.query_params.get("done") or "").strip().lower()
+        if done in ("true", "1", "yes", "y"):
+            qs = qs.filter(is_done=True)
+        elif done in ("false", "0", "no", "n"):
+            qs = qs.filter(is_done=False)
+
+        overdue = (self.request.query_params.get("overdue") or "").strip().lower()
+        if overdue in ("true", "1", "yes", "y"):
+            qs = qs.filter(is_done=False, due_at__lt=timezone.now())
+
+        q = (self.request.query_params.get("q") or "").strip()
+        if q:
+            qs = qs.filter(Q(title__icontains=q) | Q(note__icontains=q))
+
+        # rangos de fechas (ISO “YYYY-MM-DD” o “YYYY-MM-DDTHH:MM”)
+        def _parse_dt(s):
+            if not s:
+                return None
+            try:
+                s = s.replace("Z", "+00:00")
+                dt = timezone.datetime.fromisoformat(s)
+                if timezone.is_naive(dt):
+                    dt = timezone.make_aware(dt)
+                return dt
+            except Exception:
+                return None
+
+        dfrom = _parse_dt(self.request.query_params.get("from"))
+        dto   = _parse_dt(self.request.query_params.get("to"))
+        if dfrom:
+            qs = qs.filter(due_at__gte=dfrom)
+        if dto:
+            qs = qs.filter(due_at__lte=dto)
+
+        # orden: primero pendientes por fecha, luego hechos
+        return qs.order_by("is_done", "due_at", "id")
 # ---------------------------------------------------------
 # Perfil simple para el frontend (/api/me/)
 # ---------------------------------------------------------
