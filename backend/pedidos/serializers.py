@@ -236,26 +236,99 @@ class PedidoCruceroSerializer(serializers.ModelSerializer):
 
 # ====== Reminders ======
 class ReminderSerializer(serializers.ModelSerializer):
-    user = serializers.HiddenField(default=serializers.CurrentUserDefault())
+    """
+    Acepta payloads con:
+      - title
+      - notes  -> mapeado al campo real existente (note/description/...)
+      - due_at -> mapeado al campo real existente (when/at/...)
+    Inyecta 'user' si el modelo tiene ese FK.
+    """
 
+    # Definimos después los campos de Meta dinámicamente; mantenemos '__all__'
     class Meta:
         model = Reminder
-        fields = ["id", "user", "title", "notes", "due_at", "created_at", "done_at"]
-        read_only_fields = ["id", "created_at", "done_at"]
+        fields = "__all__"
+        # read_only lo calculamos en __init__ si los campos existen
+        read_only_fields = []
 
-    def validate_due_at(self, value):
+    # Aliases aceptados desde el frontend
+    NOTES_ALIASES = ["notes", "note", "notas", "nota", "description", "details", "observaciones", "body", "text", "mensaje", "content"]
+    DUE_ALIASES = ["due_at", "when", "scheduled_at", "scheduled_for", "remind_at", "at", "fecha", "fecha_hora"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self._fields_in_model = _model_field_names(self.Meta.model)
+        # Resuelve el nombre real del campo de notas y fecha en el modelo
+        self.real_notes_field = next((n for n in self.NOTES_ALIASES if n in self._fields_in_model), None)
+        self.real_due_field = next((n for n in self.DUE_ALIASES if n in self._fields_in_model), None)
+
+        # Si el modelo tiene 'user', conviértelo en HiddenField(CurrentUserDefault())
+        if "user" in self._fields_in_model:
+            self.fields["user"] = serializers.HiddenField(default=serializers.CurrentUserDefault())
+
+        # Marca como solo-lectura si existen
+        for ro in ("id", "created_at", "done_at"):
+            if ro in self.fields:
+                self.fields[ro].read_only = True
+
+    # -------- entrada ----------
+    def to_internal_value(self, data):
         """
-        Acepta naive datetimes y los vuelve aware en la TZ actual,
-        y no permite fechas en el pasado.
+        Mapea alias del payload a los nombres reales del modelo.
+        Normaliza fecha/hora y la vuelve aware.
         """
-        if value is None:
-            raise serializers.ValidationError("Este campo es obligatorio.")
+        if not isinstance(data, dict):
+            return super().to_internal_value(data)
 
-        # Si llega naive (sin tz), añadirla
-        if timezone.is_naive(value):
-            value = timezone.make_aware(value, timezone.get_current_timezone())
+        data = dict(data)  # copia editable
 
-        if value < timezone.now():
-            raise serializers.ValidationError("No puede ser en el pasado.")
+        # Mapear notes -> real_notes_field
+        if "notes" in data and self.real_notes_field and self.real_notes_field != "notes":
+            data[self.real_notes_field] = data.pop("notes")
 
-        return value
+        # Mapear due_at -> real_due_field
+        if "due_at" in data and self.real_due_field and self.real_due_field != "due_at":
+            data[self.real_due_field] = data.pop("due_at")
+
+        # Normalizar fecha (si tenemos el campo real)
+        if self.real_due_field and self.real_due_field in data:
+            raw = data[self.real_due_field]
+            dt = None
+            if isinstance(raw, str):
+                # admite "2025-10-12T14:00:00" o con 'Z'
+                raw2 = raw.replace("Z", "+00:00")
+                dt = parse_datetime(raw2)
+            elif isinstance(raw, timezone.datetime):
+                dt = raw
+
+            if dt is None:
+                raise serializers.ValidationError({self.real_due_field: "Formato de fecha inválido."})
+
+            if timezone.is_naive(dt):
+                dt = timezone.make_aware(dt, timezone.get_current_timezone())
+
+            data[self.real_due_field] = dt
+
+        return super().to_internal_value(data)
+
+    # -------- validaciones específicas ----------
+    def validate(self, attrs):
+        # Validar que la fecha no sea pasada (si el modelo tiene campo de fecha)
+        if self.real_due_field and self.real_due_field in attrs:
+            dt = attrs[self.real_due_field]
+            if dt < timezone.now():
+                raise serializers.ValidationError({self.real_due_field: "No puede ser en el pasado."})
+        return attrs
+
+    # -------- creación/actualización ----------
+    def create(self, validated_data):
+        # Si el modelo tiene 'user' y no vino (HiddenField lo pone), asegurar:
+        if "user" in self._fields_in_model and "user" not in validated_data:
+            request = self.context.get("request")
+            if request and request.user and request.user.is_authenticated:
+                validated_data["user"] = request.user
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        return super().update(instance, validated_data)
