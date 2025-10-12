@@ -53,6 +53,8 @@ class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
 
 
 class PedidoSerializer(serializers.ModelSerializer):
+    empresa_nombre = serializers.CharField(source="empresa.nombre", read_only=True)
+
     class Meta:
         model = Pedido
         fields = "__all__"
