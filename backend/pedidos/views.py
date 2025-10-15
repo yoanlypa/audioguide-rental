@@ -261,7 +261,6 @@ class IsAuthenticatedAndOwnerOrStaff(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
         if request.user.is_staff:
             return True
-        # coherente con el resto del código: campo 'user'
         return getattr(obj, "user_id", None) == request.user.id
 
 
@@ -282,41 +281,35 @@ class EmpresaViewSet(viewsets.ReadOnlyModelViewSet):
         return qs.filter(nombre=nombre) if nombre else qs.none()
 
 class PedidoOpsViewSet(viewsets.ModelViewSet):
-    serializer_class = PedidoOpsSerializer
     permission_classes = [IsAuthenticatedAndOwnerOrStaff]
     queryset = Pedido.objects.all().order_by("-fecha_inicio", "-id")
 
     def get_serializer_class(self):
+        # Lectura con el serializer de lectura; escritura con el de escritura
         if self.action in ("create", "update", "partial_update"):
             return PedidoOpsWriteSerializer
         return PedidoOpsSerializer
 
     def get_queryset(self):
         qs = super().get_queryset()
-
-        # Si no es staff, solo sus pedidos
         user = self.request.user
         if not user.is_staff:
             qs = qs.filter(user=user)
 
-        # Filtro por estado (coma-separado)
         status_param = self.request.query_params.get("status")
         if status_param:
             parts = [p.strip() for p in status_param.split(",") if p.strip()]
             if parts:
                 qs = qs.filter(estado__in=parts)
 
-        # Filtro por tipo_servicio (coma-separado)
         ts_param = self.request.query_params.get("tipo_servicio")
         if ts_param:
             ts_parts = [p.strip() for p in ts_param.split(",") if p.strip()]
             if ts_parts:
                 qs = qs.filter(tipo_servicio__in=ts_parts)
 
-        # Rango de fechas (acepta ISO con Z)
         date_from = _parse_dt(self.request.query_params.get("date_from"))
         date_to   = _parse_dt(self.request.query_params.get("date_to"))
-
         if date_from:
             if isinstance(date_from, datetime):
                 date_from = date_from.date()
@@ -328,19 +321,17 @@ class PedidoOpsViewSet(viewsets.ModelViewSet):
 
         return qs
 
-    @action(detail=True, methods=["post"])
-    def delivered(self, request, pk=None):
-        obj = self.get_object()
-        delivered_pax = request.data.get("delivered_pax", None)
-        override_pax = bool(request.data.get("override_pax", False))
-        obj.set_delivered(user=request.user, delivered_pax=delivered_pax, override_pax=override_pax)
-        return Response({"ok": True, "status": "entregado", "id": obj.id, "pax": obj.pax})
+    def perform_create(self, serializer):
+        """
+        Asegura siempre el user autenticado.
+        Si el usuario NO es staff, el serializer ya resuelve empresa por su nombre;
+        si es staff, espera `empresa` en el payload.
+        """
+        serializer.save(user=self.request.user)
 
-    @action(detail=True, methods=["post"])
-    def collected(self, request, pk=None):
-        obj = self.get_object()
-        obj.set_collected(user=request.user)
-        return Response({"ok": True, "status": "recogido", "id": obj.id})
+    def perform_update(self, serializer):
+        # (opcional) mantener user sin cambios
+        serializer.save()
 
 class ReminderViewSet(viewsets.ModelViewSet):
     """
