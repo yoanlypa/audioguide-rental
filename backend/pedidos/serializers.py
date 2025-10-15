@@ -15,7 +15,15 @@ from .models import (
 
 User = get_user_model()
 
-
+class EmptyToNoneIntegerField(serializers.IntegerField):
+    """
+    Acepta "", None o número. Si es "", lo convierte a None.
+    """
+    def to_internal_value(self, data):
+        if data in ("", None):
+            return None
+        return super().to_internal_value(data)
+    
 class CustomUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
@@ -154,9 +162,10 @@ class PedidoOpsSerializer(serializers.ModelSerializer):
 # ====== OPS (Escritura) ======
 class PedidoOpsWriteSerializer(serializers.ModelSerializer):
     fecha_inicio = DateOrDateTimeToDateField(required=True)
-    fecha_fin = DateOrDateTimeToDateField(required=False, allow_null=True)
+    fecha_fin    = DateOrDateTimeToDateField(required=False, allow_null=True)
     tipo_servicio = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    emisores = serializers.CharField(required=False, allow_blank=True, allow_null=True, default="")
+    # ⬇️ aquí cambiamos a nuestro IntegerField que admite "" -> None
+    emisores      = EmptyToNoneIntegerField(required=False, allow_null=True)
 
     class Meta:
         model = Pedido
@@ -188,10 +197,10 @@ class PedidoOpsWriteSerializer(serializers.ModelSerializer):
         ff = attrs.get("fecha_fin")
         if ff and fi and ff < fi:
             raise serializers.ValidationError({"fecha_fin": "Debe ser >= fecha_inicio."})
-        if not attrs.get("emisores"):
-            attrs["emisores"] = ""
+        # por si llegara cadena vacía de alguna ruta:
+        if attrs.get("emisores", None) in ("",):
+            attrs["emisores"] = None
         return attrs
-
 
 class PedidoCruceroSerializer(serializers.ModelSerializer):
     printing_date = serializers.DateTimeField(read_only=True)
