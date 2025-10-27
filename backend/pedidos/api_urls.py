@@ -16,8 +16,8 @@ from .views import (
 
 # Routers para ViewSets
 router = DefaultRouter()
-router.register(r"pedidos", PedidoViewSet, basename="pedidos")
-router.register(r"ops/pedidos", PedidoOpsViewSet, basename="ops-pedidos")
+router.register(r"pedidos", PedidoViewSet, basename="pedido")
+router.register(r"ops/pedidos", PedidoOpsViewSet, basename="pedidos-ops")
 router.register(r"empresas", EmpresaViewSet, basename="empresas")
 router.register(r"reminders", ReminderViewSet, basename="reminders") 
 

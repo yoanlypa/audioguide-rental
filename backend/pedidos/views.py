@@ -1,55 +1,46 @@
-# pedidos/views.py
 import logging
 import json
-import ast
-from datetime import date, datetime
-from django.db.models import Q
-from django.shortcuts import render
-from django.db import transaction
+from datetime import datetime, timedelta
+
 from django.utils import timezone
+from django.db import transaction
+from django.db.models import Q  
+from django.shortcuts import get_object_or_404
 
-from rest_framework import viewsets, permissions, status, generics, filters, serializers
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework.views import APIView
+from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
-from rest_framework_simplejwt.views import TokenObtainPairView
-
-from drf_yasg.utils import swagger_auto_schema
-from drf_yasg import openapi
-
-from .models import Pedido, PedidoCrucero, Empresa, Reminder
+from .models import Pedido, Empresa, PedidoCrucero, Reminder
 from .serializers import (
     PedidoSerializer,
+    PedidoOpsSerializer,
+    PedidoOpsWriteSerializer,
+    EmpresaSerializer,
     PedidoCruceroSerializer,
+    ReminderSerializer,
     EmailTokenObtainPairSerializer,
-    PedidoOpsSerializer, PedidoOpsWriteSerializer,
-    EmpresaSerializer, ReminderSerializer,
 )
+from rest_framework_simplejwt.views import TokenObtainPairView
 
 # ---------------------------------------------------------
 # Pedidos "normales"
 # ---------------------------------------------------------
 
-class PedidoViewSet(viewsets.ModelViewSet):
-    queryset = Pedido.objects.all()
+class PedidoViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Vista de solo lectura para que cada usuario
+    vea SUS pedidos (mis pedidos).
+    No permite crear ni modificar pedidos.
+    """
     serializer_class = PedidoSerializer
     permission_classes = [permissions.IsAuthenticated]
 
-    @swagger_auto_schema(
-        manual_parameters=[
-            openapi.Parameter(
-                "sede",
-                openapi.IN_QUERY,
-                description="Filtra por sede",
-                type=openapi.TYPE_STRING,
-            )
-        ]
-    )
     def get_queryset(self):
-        # Devuelve solo los pedidos del usuario autenticado
-        return Pedido.objects.filter(user=self.request.user)
+        # pedidos visibles solo del usuario autenticado
+        user = self.request.user
+        return Pedido.objects.filter(user=user).order_by("-fecha_creacion")
 
 
 class EmailTokenObtainPairView(TokenObtainPairView):
@@ -57,7 +48,7 @@ class EmailTokenObtainPairView(TokenObtainPairView):
 
 
 class MisPedidosView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         pedidos = Pedido.objects.filter(user=request.user)
@@ -66,7 +57,7 @@ class MisPedidosView(APIView):
 
 
 class BulkPedidos(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         ser = PedidoSerializer(data=request.data, many=True)
@@ -81,7 +72,7 @@ class BulkPedidos(APIView):
 # ---------------------------------------------------------
 
 class CruceroBulkView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated]
 
     # ---------- GET con ordering flexible ----------
     def get(self, request):
@@ -281,6 +272,25 @@ class EmpresaViewSet(viewsets.ReadOnlyModelViewSet):
         return qs.filter(nombre=nombre) if nombre else qs.none()
 
 class PedidoOpsViewSet(viewsets.ModelViewSet):
+    """
+    Endpoint OFICIAL para crear, editar y gestionar pedidos operativos.
+
+    - GET /api/ops/pedidos/        -> listado filtrable (para panel operaciones)
+    - POST /api/ops/pedidos/       -> crear pedido
+    - PATCH /api/ops/pedidos/{id}/ -> editar pedido
+    - POST /api/ops/pedidos/{id}/delivered/ -> marcar entregado
+    - POST /api/ops/pedidos/{id}/collected/ -> marcar recogido
+
+    Reglas importantes:
+    - Siempre fuerza serializer.save(user=request.user) en perform_create,
+      así nunca se crea un pedido sin usuario.
+    - Empresa:
+        * Si el usuario NO es staff, la empresa se resuelve automáticamente
+          en el serializer a partir del propio usuario.
+        * Si el usuario ES staff, puede pasar empresa explícitamente.
+    - Esta vista reemplaza cualquier creación POST en PedidoViewSet.
+      PedidoViewSet queda SOLO LECTURA.
+    """
     permission_classes = [IsAuthenticatedAndOwnerOrStaff]
     queryset = Pedido.objects.all().order_by("-fecha_inicio", "-id")
 
@@ -335,54 +345,78 @@ class PedidoOpsViewSet(viewsets.ModelViewSet):
 
 class ReminderViewSet(viewsets.ModelViewSet):
     """
-    GET /api/reminders/?done=true|false&overdue=true|false&q=texto&from=ISO&to=ISO
+    Recordatorios personales del usuario autenticado.
+    Permite filtrar por:
+      - done=true/false
+      - overdue=true (atrasados)
+      - q=texto (busca en title / notes)
+      - due_before=YYYY-MM-DD
+      - due_after=YYYY-MM-DD
+    Orden: primero no hechos, luego más urgentes.
     """
     serializer_class = ReminderSerializer
     permission_classes = [permissions.IsAuthenticated]
 
-    # base: sólo los del usuario autenticado
-    queryset = Reminder.objects.all()
-
     def get_queryset(self):
-        qs = Reminder.objects.filter(user=self.request.user)
+        user = self.request.user
 
-        # --- filtros opcionales ---
-        done = (self.request.query_params.get("done") or "").strip().lower()
-        if done in ("true", "1", "yes", "y"):
-            qs = qs.filter(is_done=True)
-        elif done in ("false", "0", "no", "n"):
-            qs = qs.filter(is_done=False)
+        # punto de partida: solo los recordatorios del usuario
+        qs = Reminder.objects.filter(user=user)
 
-        overdue = (self.request.query_params.get("overdue") or "").strip().lower()
-        if overdue in ("true", "1", "yes", "y"):
+        params = self.request.query_params
+
+        # done=true / false
+        done = params.get("done")
+        if done is not None:
+            if done.lower() in ("1", "true", "yes", "y"):
+                qs = qs.filter(is_done=True)
+            elif done.lower() in ("0", "false", "no", "n"):
+                qs = qs.filter(is_done=False)
+
+        # overdue=true  => due_at < ahora y is_done=False
+        overdue = params.get("overdue")
+        if overdue and overdue.lower() in ("1", "true", "yes", "y"):
             qs = qs.filter(is_done=False, due_at__lt=timezone.now())
 
-        q = (self.request.query_params.get("q") or "").strip()
-        if q:
-            qs = qs.filter(Q(title__icontains=q) | Q(note__icontains=q))
+        # q=texto libre
+        query_text = params.get("q")
+        if query_text:
+            qs = qs.filter(
+                Q(title__icontains=query_text) |
+                Q(notes__icontains=query_text)
+            )
 
-        # rangos de fechas (ISO “YYYY-MM-DD” o “YYYY-MM-DDTHH:MM”)
-        def _parse_dt(s):
-            if not s:
-                return None
+        # due_before / due_after (YYYY-MM-DD)
+        due_before = params.get("due_before")
+        if due_before:
             try:
-                s = s.replace("Z", "+00:00")
-                dt = timezone.datetime.fromisoformat(s)
-                if timezone.is_naive(dt):
-                    dt = timezone.make_aware(dt)
-                return dt
-            except Exception:
-                return None
+                cutoff = datetime.fromisoformat(due_before)
+                qs = qs.filter(due_at__lte=cutoff)
+            except ValueError:
+                pass  # si no es fecha válida, lo ignoramos
 
-        dfrom = _parse_dt(self.request.query_params.get("from"))
-        dto   = _parse_dt(self.request.query_params.get("to"))
-        if dfrom:
-            qs = qs.filter(due_at__gte=dfrom)
-        if dto:
-            qs = qs.filter(due_at__lte=dto)
+        due_after = params.get("due_after")
+        if due_after:
+            try:
+                cutoff = datetime.fromisoformat(due_after)
+                qs = qs.filter(due_at__gte=cutoff)
+            except ValueError:
+                pass
 
-        # orden: primero pendientes por fecha, luego hechos
-        return qs.order_by("is_done", "due_at", "id")
+        # Orden final: primero los no hechos, luego por fecha, luego id
+        qs = qs.order_by("is_done", "due_at", "id")
+        return qs
+
+    @action(detail=True, methods=["post"])
+    def done(self, request, pk=None):
+        """
+        Marcar recordatorio como hecho (is_done=True).
+        """
+        reminder = self.get_object()
+        reminder.is_done = True
+        reminder.save(update_fields=["is_done"])
+        return Response(self.serializer_class(reminder).data)
+
 # ---------------------------------------------------------
 # Perfil simple para el frontend (/api/me/)
 # ---------------------------------------------------------
