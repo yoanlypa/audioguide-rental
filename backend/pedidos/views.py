@@ -359,30 +359,60 @@ class PedidoOpsViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def delivered(self, request, pk=None):
         """
-        Marca el pedido como ENTREGADO.
-        También debería actualizar 'updates' dentro del pedido.
+        Marcar el pedido como ENTREGADO y registrar cuántos receptores se dejaron realmente.
+
+        Body esperado (JSON):
+        {
+            "delivered_pax": 32,        # opcional
+            "override_pax": true,       # opcional, si quieres que 'pax' pase a ser ese número
+            "note": "dejamos 2 extra"   # opcional, comentario libre
+        }
+
+        Qué hace:
+        - Cambia estado a "entregado"
+        - Añade un evento a `updates` con delivered_pax
+        - Si override_pax=true, actualiza self.pax
+        - Guarda todo
+        - Devuelve el pedido actualizado
         """
         pedido = self.get_object()
 
-        # Aquí asumimos que tu modelo Pedido tiene un método tipo set_delivered()
-        # que hace:
-        #   - self.estado = "entregado"
-        #   - añade evento a updates
-        #   - guarda
-        pedido.set_delivered(request.user)
+        delivered_pax = request.data.get("delivered_pax", None)
+        override_pax = request.data.get("override_pax", False)
+        note = request.data.get("note", None)
 
-        # Respondemos con el serializer de lectura final
+        # IMPORTANTE:
+        # set_delivered ya se encarga de:
+        # - self.estado = "entregado"
+        # - loggear delivered_pax y note dentro de updates
+        # - si override_pax=True => self.pax = delivered_pax
+        # - save(update_fields=["estado", "updates", "pax"])
+        pedido.set_delivered(
+            user=request.user,
+            note=note,
+            delivered_pax=delivered_pax,
+            override_pax=bool(override_pax),
+        )
+
         serializer = PedidoOpsSerializer(pedido, context={"request": request})
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"])
     def collected(self, request, pk=None):
         """
-        Marca el pedido como RECOGIDO.
-        También loguea en 'updates'.
+        Marcar el pedido como RECOGIDO.
+        Opcionalmente puedes mandar "note" en el body para guardar en updates.
+        {
+            "note": "recogido todo ok"
+        }
         """
         pedido = self.get_object()
-        pedido.set_collected(request.user)
+        note = request.data.get("note", None)
+
+        pedido.set_collected(
+            user=request.user,
+            note=note,
+        )
 
         serializer = PedidoOpsSerializer(pedido, context={"request": request})
         return Response(serializer.data, status=status.HTTP_200_OK)
