@@ -275,73 +275,117 @@ class PedidoOpsViewSet(viewsets.ModelViewSet):
     """
     Endpoint OFICIAL para crear, editar y gestionar pedidos operativos.
 
-    - GET /api/ops/pedidos/        -> listado filtrable (para panel operaciones)
-    - POST /api/ops/pedidos/       -> crear pedido
-    - PATCH /api/ops/pedidos/{id}/ -> editar pedido
+    - GET /api/ops/pedidos/              -> listado filtrable (panel operaciones)
+    - POST /api/ops/pedidos/             -> crear pedido
+    - PATCH /api/ops/pedidos/{id}/       -> editar pedido parcial
     - POST /api/ops/pedidos/{id}/delivered/ -> marcar entregado
     - POST /api/ops/pedidos/{id}/collected/ -> marcar recogido
 
-    Reglas importantes:
-    - Siempre fuerza serializer.save(user=request.user) en perform_create,
-      así nunca se crea un pedido sin usuario.
-    - Empresa:
-        * Si el usuario NO es staff, la empresa se resuelve automáticamente
-          en el serializer a partir del propio usuario.
-        * Si el usuario ES staff, puede pasar empresa explícitamente.
-    - Esta vista reemplaza cualquier creación POST en PedidoViewSet.
-      PedidoViewSet queda SOLO LECTURA.
+    Reglas:
+    - perform_create fuerza user=request.user.
+    - Serializers:
+        * list/retrieve usan PedidoOpsSerializer (lectura).
+        * create/update usan PedidoOpsWriteSerializer (escritura).
+    - Filtros por fecha, tipo_servicio, estado, empresa, etc.
     """
-    permission_classes = [IsAuthenticatedAndOwnerOrStaff]
-    queryset = Pedido.objects.all().order_by("-fecha_inicio", "-id")
+
+    permission_classes = [permissions.IsAuthenticated]  # o tu permiso custom IsAuthenticatedAndOwnerOrStaff
+    queryset = Pedido.objects.all().order_by("-fecha_creacion")
 
     def get_serializer_class(self):
-        # Lectura con el serializer de lectura; escritura con el de escritura
-        if self.action in ("create", "update", "partial_update"):
+        # Para lectura (GET) usamos el serializer de lectura
+        if self.action in ["list", "retrieve"]:
+            return PedidoOpsSerializer
+        # Para escritura (POST, PATCH) usamos el serializer de escritura
+        if self.action in ["create", "update", "partial_update"]:
             return PedidoOpsWriteSerializer
+        # Para acciones custom tipo delivered/collected, vamos a devolver lectura final
+        if self.action in ["delivered", "collected"]:
+            return PedidoOpsSerializer
+        # fallback seguro
         return PedidoOpsSerializer
 
     def get_queryset(self):
-        qs = super().get_queryset()
         user = self.request.user
+        qs = Pedido.objects.all()
+
+        # Si NO es staff, solo sus pedidos o de su empresa (dependiendo de tu regla)
         if not user.is_staff:
+            # restringimos pedidos visibles
             qs = qs.filter(user=user)
 
-        status_param = self.request.query_params.get("status")
-        if status_param:
-            parts = [p.strip() for p in status_param.split(",") if p.strip()]
-            if parts:
-                qs = qs.filter(estado__in=parts)
+        # filtros query params
+        params = self.request.query_params
 
-        ts_param = self.request.query_params.get("tipo_servicio")
-        if ts_param:
-            ts_parts = [p.strip() for p in ts_param.split(",") if p.strip()]
-            if ts_parts:
-                qs = qs.filter(tipo_servicio__in=ts_parts)
+        # por estado (ej: ?estado=pagado)
+        estado = params.get("estado")
+        if estado:
+            qs = qs.filter(estado=estado)
 
-        date_from = _parse_dt(self.request.query_params.get("date_from"))
-        date_to   = _parse_dt(self.request.query_params.get("date_to"))
-        if date_from:
-            if isinstance(date_from, datetime):
-                date_from = date_from.date()
-            qs = qs.filter(fecha_inicio__gte=date_from)
-        if date_to:
-            if isinstance(date_to, datetime):
-                date_to = date_to.date()
-            qs = qs.filter(fecha_inicio__lte=date_to)
+        # por tipo de servicio (?tipo_servicio=dia_Completo / mediodia / circuito / crucero ...)
+        tipo_servicio = params.get("tipo_servicio")
+        if tipo_servicio:
+            qs = qs.filter(tipo_servicio=tipo_servicio)
 
-        return qs
+        # rango de fechas (?desde=YYYY-MM-DD&hasta=YYYY-MM-DD)
+        desde = params.get("desde")
+        hasta = params.get("hasta")
+
+        if desde:
+            try:
+                d = datetime.fromisoformat(desde).date()
+                qs = qs.filter(fecha_inicio__gte=d)
+            except ValueError:
+                pass
+
+        if hasta:
+            try:
+                h = datetime.fromisoformat(hasta).date()
+                qs = qs.filter(fecha_inicio__lte=h)
+            except ValueError:
+                pass
+
+        # empresa específica (solo staff debería poder filtrar esto)
+        empresa_id = params.get("empresa")
+        if empresa_id and user.is_staff:
+            qs = qs.filter(empresa_id=empresa_id)
+
+        return qs.order_by("-fecha_creacion", "-id")
 
     def perform_create(self, serializer):
-        """
-        Asegura siempre el user autenticado.
-        Si el usuario NO es staff, el serializer ya resuelve empresa por su nombre;
-        si es staff, espera `empresa` en el payload.
-        """
+        # SIEMPRE atamos el pedido al usuario autenticado
         serializer.save(user=self.request.user)
 
-    def perform_update(self, serializer):
-        # (opcional) mantener user sin cambios
-        serializer.save()
+    @action(detail=True, methods=["post"])
+    def delivered(self, request, pk=None):
+        """
+        Marca el pedido como ENTREGADO.
+        También debería actualizar 'updates' dentro del pedido.
+        """
+        pedido = self.get_object()
+
+        # Aquí asumimos que tu modelo Pedido tiene un método tipo set_delivered()
+        # que hace:
+        #   - self.estado = "entregado"
+        #   - añade evento a updates
+        #   - guarda
+        pedido.set_delivered(request.user)
+
+        # Respondemos con el serializer de lectura final
+        serializer = PedidoOpsSerializer(pedido, context={"request": request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"])
+    def collected(self, request, pk=None):
+        """
+        Marca el pedido como RECOGIDO.
+        También loguea en 'updates'.
+        """
+        pedido = self.get_object()
+        pedido.set_collected(request.user)
+
+        serializer = PedidoOpsSerializer(pedido, context={"request": request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 class ReminderViewSet(viewsets.ModelViewSet):
     """
